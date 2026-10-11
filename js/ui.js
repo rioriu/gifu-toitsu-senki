@@ -1,0 +1,642 @@
+// 岐阜統一戦記 画面の処理・描画
+const L = window.GameLogic;
+const SAVE_KEY = 'gifu-toitsu-v1';
+const NAMES = {}, ADJ = {}, AREA = {}, BYCODE = {};
+for (const m of MAP.muni) { NAMES[m.code] = m.name; ADJ[m.code] = m.adj; AREA[m.code] = m.area; BYCODE[m.code] = m; }
+let S = null, sel = null, seenLog = 0;
+const $ = id => document.getElementById(id);
+const svg = $('map');
+
+function save() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) {} }
+function loadSaved() { try { const t = localStorage.getItem(SAVE_KEY); return t ? JSON.parse(t) : null; } catch (e) { return null; } }
+function clearSave() { try { localStorage.removeItem(SAVE_KEY); } catch (e) {} }
+
+const colorVar = f => `var(--${S.factions[f].color})`;
+function ownerName(c) { const o = S.m[c].owner; return o < 0 ? '独立' : S.factions[o].name; }
+
+// ---------- 地図 ----------
+const NS = 'http://www.w3.org/2000/svg';
+const pathEls = {}, labelEls = {};
+function buildMap() {
+  const g = $('munis'), lg = $('labels');
+  for (const m of MAP.muni) {
+    const p = document.createElementNS(NS, 'path');
+    p.setAttribute('d', m.d); p.setAttribute('class', 'mu'); p.dataset.code = m.code;
+    p.setAttribute('fill-rule', 'evenodd');
+    g.appendChild(p); pathEls[m.code] = p;
+    const t = document.createElementNS(NS, 'text');
+    t.setAttribute('x', m.lx); t.setAttribute('y', m.ly); t.textContent = m.name;
+    lg.appendChild(t); labelEls[m.code] = t;
+  }
+  const chips = $('chips');
+  for (const r of ['全県', ...L.REGIONS]) {
+    const b = document.createElement('button'); b.textContent = r; b.dataset.r = r;
+    b.setAttribute('aria-pressed', r === '全県' ? 'true' : 'false');
+    b.onclick = () => { zoomRegion(r); for (const x of chips.children) x.setAttribute('aria-pressed', x === b ? 'true' : 'false'); };
+    chips.appendChild(b);
+  }
+}
+let vb = { x: 0, y: 0, w: MAP.w, h: MAP.h };
+function rect() { return svg.getBoundingClientRect(); }
+function setVB(keep) { svg.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.w} ${vb.h}`); if (keep !== false) lastBox = null; updateLabels(); }
+function fitBox(b, pad) {
+  const r = rect(); const sheetEl = $('sheet');
+  const shH = sheetEl ? Math.min(sheetEl.offsetHeight, r.height * 0.6) : 0;
+  const visPx = Math.max(80, r.height - shH);
+  let w = b.w + pad * 2, visH = b.h + pad * 2;
+  const asp = r.width / visPx;
+  if (w / visH > asp) visH = w / asp; else w = visH * asp;
+  const h = w * r.height / Math.max(1, r.width);
+  return { x: b.x + b.w / 2 - w / 2, y: b.y + b.h / 2 - visH / 2, w, h };
+}
+let anim = null;
+function animateTo(t) {
+  if (anim) cancelAnimationFrame(anim);
+  const from = { ...vb }, t0 = performance.now(), dur = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 280;
+  const step = now => {
+    const k = dur ? Math.min(1, (now - t0) / dur) : 1, e = 1 - Math.pow(1 - k, 3);
+    for (const key of ['x', 'y', 'w', 'h']) vb[key] = from[key] + (t[key] - from[key]) * e;
+    setVB(); if (k < 1) anim = requestAnimationFrame(step);
+  };
+  anim = requestAnimationFrame(step);
+}
+function bboxOf(codes) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const c of codes) { const b = pathEls[c].getBBox(); x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y); x1 = Math.max(x1, b.x + b.width); y1 = Math.max(y1, b.y + b.height); }
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+function zoomRegion(r) {
+  const codes = r === '全県' ? Object.keys(NAMES) : Object.keys(NAMES).filter(c => L.INFO[c][0] === r);
+  const b = bboxOf(codes), pad = r === '全県' ? 14 : 30;
+  animateTo(fitBox(b, pad)); setTimeout(() => { lastBox = { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 }; }, 320);
+}
+function updateLabels() {
+  const ppu = rect().width / vb.w;
+  if (!isFinite(ppu) || ppu <= 0) return;
+  const lg = $('labels');
+  lg.setAttribute('font-size', (12 / ppu).toFixed(2));
+  lg.setAttribute('stroke-width', (3 / ppu).toFixed(2));
+  const fs = 12 / ppu, placed = [];
+  const isCap = c => S && S.factions.some(f => f.alive && f.capital === c);
+  const order = Object.keys(labelEls).sort((a, b) => (b === sel) - (a === sel) || isCap(b) - isCap(a) || AREA[b] - AREA[a]);
+  for (const c of order) {
+    const m = BYCODE[c], w = NAMES[c].length * fs * 1.05 + fs * 0.4, h = fs * 1.3;
+    const box = { x0: m.lx - w / 2, x1: m.lx + w / 2, y0: m.ly - h / 2, y1: m.ly + h / 2 };
+    const must = c === sel || isCap(c) || (replay && replay.focus === c);
+    const fits = Math.sqrt(AREA[c]) * ppu > 30 && !placed.some(q => q.x0 < box.x1 && box.x0 < q.x1 && q.y0 < box.y1 && box.y0 < q.y1);
+    const show = must || fits;
+    if (show) placed.push(box);
+    labelEls[c].style.display = show ? '' : 'none';
+    labelEls[c].setAttribute('class', isCap(c) ? 'cap' : '');
+  }
+}
+function zoomAt(cx, cy, f) {
+  const r = rect();
+  const px = vb.x + (cx - r.left) / r.width * vb.w, py = vb.y + (cy - r.top) / r.height * vb.h;
+  const nw = Math.min(MAP.w * 1.6, Math.max(MAP.w / 10, vb.w * f));
+  const k = nw / vb.w;
+  vb = { x: px - (px - vb.x) * k, y: py - (py - vb.y) * k, w: vb.w * k, h: vb.h * k };
+  clampVB(); setVB();
+}
+function clampVB() {
+  const m = 0.35;
+  vb.x = Math.min(MAP.w - vb.w * m, Math.max(-vb.w * (1 - m), vb.x));
+  vb.y = Math.min(MAP.h - vb.h * m, Math.max(-vb.h * (1 - m), vb.y));
+}
+const ptrs = new Map(); let moved = 0, downTarget = null, lastPinch = null;
+svg.addEventListener('pointerdown', e => {
+  svg.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (ptrs.size === 1) { moved = 0; downTarget = e.target; } else lastPinch = null;
+});
+svg.addEventListener('pointermove', e => {
+  if (!ptrs.has(e.pointerId)) return;
+  const prev = ptrs.get(e.pointerId); const cur = { x: e.clientX, y: e.clientY };
+  ptrs.set(e.pointerId, cur);
+  if (ptrs.size === 1) {
+    const dx = cur.x - prev.x, dy = cur.y - prev.y; moved += Math.abs(dx) + Math.abs(dy);
+    const u = vb.w / rect().width; vb.x -= dx * u; vb.y -= dy * u; clampVB(); setVB();
+  } else if (ptrs.size === 2) {
+    const [a, b] = [...ptrs.values()]; const d = Math.hypot(a.x - b.x, a.y - b.y);
+    if (lastPinch) zoomAt((a.x + b.x) / 2, (a.y + b.y) / 2, lastPinch / d);
+    lastPinch = d; moved = 99;
+  }
+});
+const endPtr = e => {
+  if (!ptrs.has(e.pointerId)) return;
+  ptrs.delete(e.pointerId);
+  if (ptrs.size === 0 && moved < 8 && downTarget && downTarget.dataset && downTarget.dataset.code) select(downTarget.dataset.code);
+  if (ptrs.size < 2) lastPinch = null;
+};
+svg.addEventListener('pointerup', endPtr); svg.addEventListener('pointercancel', endPtr);
+svg.addEventListener('wheel', e => { e.preventDefault(); zoomAt(e.clientX, e.clientY, Math.exp(e.deltaY * 0.0015)); }, { passive: false });
+let lastBox = null;
+new ResizeObserver(() => { const r = rect(); if (r.width < 10 || r.height < 10) return; vb = fitBox(lastBox || vb, 0); setVB(false); }).observe(svg);
+
+function paintMap() {
+  const frontier = new Set(Object.keys(S.m).filter(c => S.m[c].owner === -1 && L.adjacentTo(S, ADJ, c, 0)));
+  for (const c in pathEls) {
+    const x = S.m[c], p = pathEls[c];
+    const own = replay ? replay.owners[c] : x.owner;
+    if (own >= 0) {
+      const isCap = S.factions[own].capital === c;
+      p.style.fill = `color-mix(in srgb, ${colorVar(own)} ${isCap ? 92 : 68}%, var(--land))`;
+    } else if (x.pact.includes(0)) p.style.fill = `color-mix(in srgb, var(--me) 22%, var(--land))`;
+    else p.style.fill = frontier.has(c) ? 'var(--land-hi)' : 'var(--land)';
+  }
+  const tg = $('talks'); tg.textContent = '';
+  for (const c in S.m) {
+    const t = S.m[c].talk; if (!t) continue;
+    const p = document.createElementNS(NS, 'path'); p.setAttribute('d', BYCODE[c].d); p.setAttribute('class', 'talk');
+    p.style.stroke = colorVar(t.f); tg.appendChild(p);
+    if (t.rival !== undefined) {
+      const q = document.createElementNS(NS, 'path'); q.setAttribute('d', BYCODE[c].d); q.setAttribute('class', 'talk talk2');
+      q.style.stroke = colorVar(t.rival); tg.appendChild(q);
+    }
+  }
+  $('selPath').setAttribute('d', sel ? BYCODE[sel].d : '');
+  const lg = $('legend'); lg.textContent = '';
+  for (const f of S.factions) {
+    if (!f.alive) continue;
+    const s = document.createElement('span');
+    s.innerHTML = `<i class="dot" style="background:${colorVar(f.id)}"></i>${f.name}`; lg.appendChild(s);
+  }
+  const s1 = document.createElement('span'); s1.innerHTML = `<i class="dot" style="background:color-mix(in srgb, var(--me) 22%, var(--land))"></i>協定先`; lg.appendChild(s1);
+  updateLabels();
+}
+
+// ---------- 画面 ----------
+function renderStatus() {
+  const d = L.dateOf(S.turn), me = S.factions[0];
+  $('date').textContent = d.label;
+  const mo = $('money'); mo.textContent = `${me.money}億円`; mo.className = 'num' + (me.money < 0 ? ' neg' : '');
+  const max = L.apMax(S, 0); $('pips').innerHTML = Array.from({ length: max }, (_, i) => `<i class="${i < S.ap ? 'on' : ''}"></i>`).join('');
+  $('pips').setAttribute('aria-label', `行動力 ${S.ap}/${max}`);
+  $('count').textContent = `${L.owned(S, 0).length}/42`;
+  const nd = L.dateOf(S.turn + 1); $('endSub').textContent = `${nd.month}月へ`;
+  const unread = S.log.length - seenLog; const bd = $('newsBadge');
+  bd.hidden = unread <= 0; bd.textContent = unread > 99 ? '99+' : unread;
+}
+function meter(label, v, cls) {
+  v = Math.round(v);
+  return `<div class="meter"><span>${label}</span><div class="bar ${cls || ''}${v < 30 && cls !== 'rel' ? ' low' : ''}"><i style="width:${v}%"></i></div><b class="num">${v}</b></div>`;
+}
+let sheetOpen = (() => { try { return localStorage.getItem(SAVE_KEY + '-sheet') !== '0'; } catch (e) { return true; } })();
+function setSheetOpen(v) {
+  sheetOpen = v; try { localStorage.setItem(SAVE_KEY + '-sheet', v ? '1' : '0'); } catch (e) {}
+  const sh = $('sheet'); sh.dataset.open = v ? 'true' : 'false';
+  const hb = $('sheetHandle'); if (hb) hb.setAttribute('aria-expanded', v ? 'true' : 'false');
+  if (v && sel) requestAnimationFrame(() => ensureVisible(sel));
+}
+function sheetFrame(peek, full) {
+  const sh = $('sheet');
+  sh.dataset.open = sheetOpen ? 'true' : 'false';
+  sh.innerHTML = `<button class="handle" id="sheetHandle" aria-expanded="${sheetOpen}" aria-label="詳細とコマンドを${sheetOpen ? '閉じる' : '開く'}"><i></i></button>
+    <div class="body"><div class="peek" id="sheetPeek">${peek}</div><div class="full">${full}</div></div>`;
+  $('sheetHandle').onclick = () => setSheetOpen(!sheetOpen);
+  $('sheetPeek').onclick = e => { if (!sheetOpen && !e.target.closest('button')) setSheetOpen(true); };
+}
+function renderSheet() {
+  const sh = $('sheet');
+  if (!sel) {
+    const me = S.factions[0];
+    const tips = L.owned(S, 0).length === 1 && S.turn < 3
+      ? `<p class="empty">まずは<b>隣の市町村をタップ</b>して交流事業で関係度を上げましょう。関係度50で<b>連携協定</b>、70で<b>合併協議</b>に進めます。</p>`
+      : `<p class="empty">地図の市町村をタップすると、数値と使えるコマンドが出ます。</p>`;
+    sheetFrame(`<div class="head"><h2>${NAMES[me.capital]}陣営</h2><span class="tag">${L.owned(S, 0).length}市町村</span></div>
+      <p class="facts num">人口 ${L.totalPop(S, 0).toFixed(1)}千人 · 平均満足度 ${Math.round(L.avgSat(S, 0))} · 収入 ${L.factionIncome(S, 0, L.dateOf(S.turn).month)}億円/月 · 維持費 ${L.upkeep(S, 0)}億円</p>`, tips);
+    return;
+  }
+  const c = sel, x = S.m[c], info = L.INFO[c], month = L.dateOf(S.turn).month;
+  const mine = x.owner === 0;
+  const ownerTag = x.owner >= 0 ? `<span class="tag owner" style="background:${colorVar(x.owner)}">${ownerName(c)}${S.factions[x.owner].capital === c ? '・本拠地' : ''}</span>` : `<span class="tag">独立</span>`;
+  const tagTag = info[2] ? `<span class="tag">${info[2]}${L.seasonX(c, month) > 1 ? '・見ごろ' : ''}</span>` : '';
+  let notes = '', alert = '';
+  const fname = k => k === 0 ? 'あなたの陣営' : S.factions[k].name;
+  if (x.talk && x.talk.rival !== undefined) {
+    const t = x.talk;
+    alert = `競り合い中・あと${t.left}か月`;
+    notes += `<p class="note talking">条件の競り合い中：${fname(t.f)} 上乗せ${t.bids[t.f]}段／${fname(t.rival)} 上乗せ${t.bids[t.rival]}段。あと${t.left}か月で決着し、選ばれた側と住民投票</p>`;
+  } else if (x.talk) { alert = `${fname(x.talk.f)}と協議中・あと${x.talk.left}か月`; notes += `<p class="note talking">${fname(x.talk.f)}と合併協議中。あと${x.talk.left}か月で住民投票</p>`; }
+  if (x.talk && x.owner >= 0 && !L.inTalk(x.talk, x.owner)) {
+    if (mine) alert = `狙われています・あと${x.talk.left}か月`;
+    notes += `<p class="note${mine ? ' talking' : ''}" style="${mine ? 'color:var(--bad)' : ''}">${mine ? 'この市町村が狙われています。' : ''}引き留め ${x.talk.keep || 0}/${L.KEEP_MAX}段（賛成 −${(x.talk.keep || 0) * L.KEEP_STEP}ポイント）</p>`;
+  }
+  if (x.pact.length) notes += `<p class="note">連携協定：${x.pact.map(f => S.factions[f].name).join('、')}</p>`;
+  const locals = (S.staff || []).filter(q => q.home === c && !q.ext);
+  if (locals.length) notes += `<p class="note">ゆかりの人材：${locals.map(q => `${q.name}（${q.f < 0 ? '未登用' : (q.f === 0 ? 'あなたの陣営' : S.factions[q.f].name)}）`).join('、')}</p>`;
+  if (!mine && !L.adjacentTo(S, ADJ, c, 0)) notes += `<p class="note">あなたの陣営と隣り合っていないため、外交はまだできません。</p>`;
+  const t = x.talk;
+  const third = !t ? 'talk' : (t.rival !== undefined ? (L.inTalk(t, 0) ? 'raise' : 'talk') : (t.f !== 0 ? 'counter' : 'talk'));
+  const attacked = mine && t && !L.inTalk(t, 0);
+  const cmds = mine ? (attacked ? ['keep', 'care', 'ind', 'tour', 'dis', 'invite'] : ['ind', 'tour', 'care', 'dis', 'invite']) : ['visit', 'pact', third];
+  if (S.budget === undefined) S.budget = 1;
+  const EFF = { ind: '産業力', tour: '観光力', care: '満足度', dis: '防災力', visit: '関係度' };
+  const btns = cmds.map(k => {
+    const sc = L.SCALABLE.includes(k) ? S.budget : undefined;
+    const def = L.CMDS[k], r = L.canDo(S, ADJ, 0, k, c, S.ap, sc), cost = L.cmdCost(S, k, c, sc);
+    const note = EFF[k] ? `${EFF[k]} +${L.cmdEffect(S, 0, k, sc)}` : def.note;
+    return `<button class="cmd${['talk', 'counter', 'raise', 'keep'].includes(k) ? ' primary' : ''}" data-cmd="${k}" aria-disabled="${!r.ok}">
+      <span class="ttl"><strong>${def.label}</strong><span class="cost num">${cost ? cost + '億・' : ''}行動${def.ap}</span></span><small>${r.ok ? note : r.reason}</small></button>`;
+  }).join('');
+  const relTxt = mine ? '' : ` · 関係度 ${Math.round(S.rel[0][c])}`;
+  sheetFrame(`<div class="head"><h2>${NAMES[c]}</h2>${ownerTag}<span class="tag">${info[0]}</span>${tagTag}</div>
+    <p class="facts num">人口 ${x.pop.toFixed(1)}千人 · 満足度 ${Math.round(x.sat)}${relTxt} · 収入 ${L.incomeOf(S, c, month).toFixed(1)}億円${alert ? ` <b class="alert">${alert}</b>` : ''}</p>`,
+    `<div class="meters">${meter('産業力', x.ind)}${meter('観光力', x.tour)}${meter('満足度', x.sat)}${meter('防災力', x.dis)}${mine ? '' : meter('関係度', S.rel[0][c], 'rel')}</div>
+    ${notes}${cmds.some(k => L.SCALABLE.includes(k)) ? budgetHtml() : ''}<div class="cmds">${btns}</div>`);
+  for (const b of sh.querySelectorAll('.cmd')) b.onclick = () => runCmd(b.dataset.cmd);
+  for (const b of sh.querySelectorAll('[data-scale]')) b.onclick = () => { S.budget = Number(b.dataset.scale); save(); renderSheet(); };
+}
+// 選んだ市町村が台帳に隠れないように地図をずらす
+function ensureVisible(c) {
+  const r = rect(), shH = $('sheet').offsetHeight;
+  const visH = vb.h * Math.max(0.2, (r.height - shH) / r.height);
+  const b = pathEls[c].getBBox(), cy = b.y + b.height / 2, cx = b.x + b.width / 2;
+  const top = vb.y + vb.h * 0.12, bottom = vb.y + visH - vb.h * 0.04;
+  let dy = 0, dx = 0;
+  if (cy > bottom) dy = cy - (vb.y + visH * 0.55);
+  if (cy < top) dy = cy - (vb.y + visH * 0.45);
+  if (cx < vb.x || cx > vb.x + vb.w) dx = cx - (vb.x + vb.w / 2);
+  if (dx || dy) animateTo({ x: vb.x + dx, y: vb.y + dy, w: vb.w, h: vb.h });
+}
+function render() { renderStatus(); paintMap(); renderSheet(); }
+
+function select(c) { sel = sel === c ? null : c; paintMap(); renderSheet(); if (sel && sheetOpen) requestAnimationFrame(() => ensureVisible(sel)); }
+
+let toastTimer = null;
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 2600);
+}
+
+function budgetHtml() {
+  const cur = L.SCALES[S.budget];
+  return `<p class="seglabel"><span>予算規模</span><span class="num">費用×${cur.cost}・効果×${cur.eff}</span></p><div class="seg" role="group" aria-label="予算規模">${L.SCALES.map((x, i) => `<button data-scale="${i}" aria-pressed="${S.budget === i}">${x.label}</button>`).join('')}</div>`;
+}
+function runCmd(k) {
+  if (!S || S.over) return;
+  const sc = L.SCALABLE.includes(k) ? S.budget : undefined;
+  const r = L.canDo(S, ADJ, 0, k, sel, S.ap, sc);
+  if (!r.ok) { toast(r.reason); return; }
+  const text = L.doCmd(S, NAMES, 0, k, sel, sc);
+  S.ap -= L.CMDS[k].ap;
+  S.log.push({ t: S.turn, text, kind: 'good' }); seenLog = S.log.length;
+  toast(text); render(); save();
+}
+
+// ---------- 月を終える ----------
+let queue = [];
+function endMonth() {
+  if (!S || S.over) return;
+  if (!$('overlay').hidden) return;
+  if (replay) return;
+  const before = {}; for (const c in S.m) before[c] = S.m[c].owner;
+  const res = L.endTurn(S, ADJ, NAMES);
+  const d = L.dateOf(S.turn);
+  save();
+  const summary = [`${d.label}　収支 ${res.income >= 0 ? '+' : ''}${res.income}億円`, ...res.news].join('　');
+  const steps = mergeSteps(res.steps);
+  if (prefs.replay && steps.length) {
+    sel = null; render();
+    startReplay(steps, before, () => { toast(summary); queue = S.over ? [() => showOver()] : []; next(); });
+  } else {
+    render(); toast(summary);
+    queue = res.votes.map(v => () => showVote(v, next));
+    if (S.over) queue.push(() => showOver());
+    next();
+  }
+}
+
+// ---------- 相手の動きを地図で見せる ----------
+let replay = null, replayTimer = null;
+const prefs = (() => { try { return JSON.parse(localStorage.getItem(SAVE_KEY + '-prefs')) || { replay: true }; } catch (e) { return { replay: true }; } })();
+function savePrefs() { try { localStorage.setItem(SAVE_KEY + '-prefs', JSON.stringify(prefs)); } catch (e) {} }
+function mergeSteps(steps) {
+  const out = [];
+  for (const s of steps) {
+    const p = out[out.length - 1];
+    if (p && s.kind === 'rival' && p.kind === 'rival' && p.f === s.f && p.code === s.code && p.cmd === s.cmd) { p.text = s.text; p.times = (p.times || 1) + 1; }
+    else out.push({ ...s });
+  }
+  return out;
+}
+function stepCaption(s) {
+  const n = NAMES[s.code];
+  if (s.kind === 'contest') {
+    const nm = k => k === 0 ? 'あなたの陣営' : S.factions[k].name;
+    return { who: `条件の競り合い・${n}`, what: `${nm(s.winner)}の条件が選ばれました（上乗せ ${s.bids[s.winner]}段 対 ${s.bids[s.loser]}段）`, color: colorVar(s.winner), warn: s.loser === 0 };
+  }
+  if (s.kind === 'event') return { who: '出来事', what: s.text, color: s.tone === 'bad' ? 'var(--bad)' : 'var(--good)', warn: false };
+  if (s.kind === 'vote') {
+    const who = s.f === 0 ? 'あなたの陣営' : S.factions[s.f].name;
+    const pct = Math.round(s.yes / Math.max(1, s.yes + s.no) * 100);
+    return { who: `住民投票・${n}`, what: s.pass ? `${who}への編入を可決（賛成${pct}％）` : `${who}との合併を否決（賛成${pct}％）`, color: colorVar(s.f), warn: s.prev === 0 && s.pass };
+  }
+  const fac = S.factions[s.f];
+  let what = s.text.replace(fac.name + 'が', '');
+  if (s.times > 1) what = what.replace(/（/, `（${s.times}回・`);
+  if (s.mine) what = 'あなたの' + what;
+  return { who: fac.name, what, color: colorVar(s.f), warn: (s.mine && (s.cmd === 'talk' || s.cmd === 'visit')) || s.vsMe };
+}
+function startReplay(steps, before, done) {
+  replay = { steps, i: 0, owners: before, done, home: { ...vb }, focus: null };
+  $('chips').hidden = true; $('replay').hidden = false; $('endBtn').disabled = true;
+  playStep();
+}
+function playStep() {
+  clearTimeout(replayTimer);
+  if (!replay) return;
+  if (replay.i >= replay.steps.length) { endReplay(); return; }
+  const s = replay.steps[replay.i];
+  const cap = stepCaption(s);
+  const box = $('replay');
+  box.style.setProperty('--rp', cap.color); box.classList.toggle('warn', cap.warn);
+  $('rpWho').textContent = cap.who; $('rpWhat').textContent = cap.what;
+  $('rpCount').textContent = `${replay.i + 1}/${replay.steps.length}`;
+  replay.focus = s.code;
+  // 対象の市町村と、動いた陣営の隣り合う領地が入るように寄る
+  const ctx = [s.code, ...ADJ[s.code].filter(c => s.f !== undefined && replay.owners[c] === s.f)].slice(0, 4);
+  const b = bboxOf(ctx); const r = rect();
+  const minW = MAP.w * 0.42;
+  animateTo(fitBox({ x: b.x + b.w / 2 - Math.max(b.w, minW) / 2, y: b.y + b.h / 2 - Math.max(b.h, minW * r.height / r.width) / 2, w: Math.max(b.w, minW), h: Math.max(b.h, minW * r.height / r.width) }, 30));
+  const pg = $('pulse'); pg.textContent = '';
+  const p = document.createElementNS(NS, 'path'); p.setAttribute('d', BYCODE[s.code].d); p.setAttribute('class', 'pulse');
+  p.style.fill = cap.color; p.style.stroke = cap.color; pg.appendChild(p);
+  if (s.kind === 'vote' && s.pass) setTimeout(() => { if (replay) { replay.owners[s.code] = s.f; paintMap(); } }, 500);
+  paintMap();
+  const mineVote = s.kind === 'vote' && (s.f === 0 || s.prev === 0 || (s.contest && s.contest.loser === 0));
+  if (mineVote) replayTimer = setTimeout(() => showVote(s, () => { closeOverlay(); advance(); }), 900);
+  else replayTimer = setTimeout(advance, s.kind === 'rival' && ['visit', 'pact', 'talk'].includes(s.cmd) || s.kind !== 'rival' ? 1700 : 1100);
+}
+function advance() { if (!replay) return; replay.i++; playStep(); }
+function endReplay() {
+  clearTimeout(replayTimer);
+  if (!replay) return;
+  const { done, home } = replay;
+  // 飛ばした分の自分に関わる住民投票は、結果だけ順に見せる
+  const rest = replay.steps.slice(replay.i + 1).filter(s => s.kind === 'vote' && (s.f === 0 || s.prev === 0));
+  replay = null;
+  $('pulse').textContent = ''; $('replay').hidden = true; $('chips').hidden = false; $('endBtn').disabled = false;
+  animateTo(home); render();
+  if (rest.length) { queue = rest.map(v => () => showVote(v, next)); queue.push(done); next(); }
+  else done();
+}
+$('replay').addEventListener('click', e => { if (e.target.id === 'rpSkip') return; advance(); });
+$('rpSkip').onclick = () => { if (replay) { if (!$('overlay').hidden) return; endReplay(); } };
+function next() { closeOverlay(); const f = queue.shift(); if (f) f(); }
+
+function openOverlay(html, cls) {
+  const p = $('panel'); p.className = 'panel' + (cls ? ' ' + cls : ''); p.innerHTML = html; $('overlay').hidden = false;
+  p.scrollTop = 0;
+  if (!cls) { const first = p.querySelector('#okBtn, #againBtn, #xBtn'); if (first) first.focus({ preventScroll: true }); }
+}
+function closeOverlay() { $('overlay').hidden = true; }
+
+function showVote(v, onOk) {
+  const mineWin = v.f === 0, total = v.yes + v.no, yp = total ? v.yes / total * 100 : 50;
+  const who = v.f === 0 ? 'あなたの陣営' : S.factions[v.f].name;
+  const good = (mineWin && v.pass) || (!mineWin && !v.pass);
+  const lostContest = v.contest && v.contest.loser === 0;
+  let lead = mineWin
+    ? (v.pass ? `${NAMES[v.code]}があなたの陣営に加わりました。` : `今回は見送りです。2か月後から再び申し入れできます。`)
+    : (v.pass ? `${NAMES[v.code]}は${who}へ編入されました。` : (lostContest ? `${NAMES[v.code]}の住民は${who}との合併も否決しました。` : `${NAMES[v.code]}の住民はあなたの陣営に残ることを選びました。`));
+  const c = v.contest;
+  const joinLine = v.joined && v.joined.length ? `<p class="sub">${NAMES[v.code]}ゆかりの人材：${v.joined.join('・')}が${v.f === 0 ? 'あなたの陣営' : S.factions[v.f].name}に加わりました</p>` : '';
+  const keepLine = joinLine + (v.keep ? `<p class="sub">引き留め ${v.keep}段で、賛成を${v.keep * L.KEEP_STEP}ポイント押し下げました</p>` : '');
+  const contestLine = keepLine + (c ? `<p class="sub">条件の競り合いは${who}に決まりました（上乗せ ${c.bids[c.winner]}段 対 ${c.bids[c.loser]}段）</p>` : '');
+  openOverlay(`<h3>住民投票 開票結果</h3>
+    <p class="sub">${NAMES[v.code]}　${who}との合併の是非</p>${contestLine}
+    <div class="ballot">
+      <div class="vs"><div><small>賛成</small><b class="num">${v.yes.toLocaleString()}票</b></div><div style="text-align:right;margin-right:110px"><small>反対</small><b class="num">${v.no.toLocaleString()}票</b></div></div>
+      <div class="split" style="margin-right:110px"><i class="yes" style="width:${yp}%"></i><i class="no" style="width:${100 - yp}%"></i></div>
+      <small class="num">投票率 ${(v.turnout * 100).toFixed(1)}％</small>
+      <div class="stamp ${v.pass ? 'pass' : ''}">${v.pass ? '可決' : '否決'}</div>
+    </div>
+    <p style="margin:14px 0 0;font-weight:700;color:${good ? 'var(--good)' : 'var(--bad)'}">${lead}</p>
+    <div class="row"><button class="btn main" id="okBtn">次へ</button></div>`);
+  $('okBtn').onclick = onOk || next;
+}
+function showOver() {
+  const o = S.over, n = L.owned(S, 0).length;
+  openOverlay(`<h3>${o.win ? '県内統一' : '任期終了'}</h3><p class="sub">${L.dateOf(S.turn).label}</p>
+    <p style="font-size:15px">${o.text}</p><p class="sub">最終的な支配：${n}/42市町村、人口${L.totalPop(S, 0).toFixed(1)}千人</p>
+    <div class="row"><button class="btn main" id="againBtn">新しく始める</button><button class="btn" id="viewBtn">地図を見る</button></div>`);
+  $('againBtn').onclick = () => { clearSave(); showTitle(); };
+  $('viewBtn').onclick = closeOverlay;
+}
+
+function roleEffect(r, v) {
+  if (!v) return '';
+  switch (r) {
+    case 'deputy': return `税収 +${Math.round(v / 5)}％`;
+    case 'planning': return `内政の効果 +${Math.floor(v / 25)}`;
+    case 'nego': return `交流 +${Math.floor(v / 15)}・賛成 +${Math.round(v / 12)}`;
+    case 'tourism': return `観光収入 +${Math.round(v / 2.5)}％`;
+  }
+  return '';
+}
+function abilHtml(p) {
+  const keys = Object.keys(L.ABIL), best = keys.reduce((a, b) => p[b] > p[a] ? b : a);
+  return `<div class="abil">${keys.map(k => `<span class="${k === best ? 'best' : ''}">${L.ABIL[k]}<b class="num">${L.abil(S, 0, p, k)}</b></span>`).join('')}</div>`;
+}
+// 新しく迎えた人を、空いている役職のうち一番得意なものに就ける
+function fillEmpty(p) {
+  const taken = new Set(L.staffOf(S, 0).filter(q => q.role).map(q => q.role));
+  const free = Object.keys(L.ROLES).filter(r => !taken.has(r));
+  if (!free.length) return '';
+  const r = free.sort((a, b) => L.abil(S, 0, p, L.ROLES[b].key) - L.abil(S, 0, p, L.ROLES[a].key))[0];
+  L.assignRole(S, 0, p.id, r);
+  return `（${L.ROLES[r].label}に就任）`;
+}
+function gradeTag(p) { const g = L.gradeOf(p); return `<span class="grade ${g}" title="ランク${g}">${g}</span>`; }
+function showStaff() {
+  L.ensureStaff(S);
+  const mine = L.staffOf(S, 0), max = L.staffMax(S, 0);
+  const roles = Object.entries(L.ROLES).map(([r, def]) => {
+    const p = mine.find(q => q.role === r), v = L.roleVal(S, 0, r);
+    return `<div class="role"><small>${def.label}・${L.ABIL[def.key]}が効く</small><b>${p ? gradeTag(p) + ' ' + p.name : '空席'}</b><span class="eff${p ? '' : ' none'}">${p ? roleEffect(r, v) : def.what}</span></div>`;
+  }).join('');
+  const opts = p => `<option value="">役職なし</option>` + Object.entries(L.ROLES).map(([r, def]) => `<option value="${r}" ${p.role === r ? 'selected' : ''}>${def.label}（${L.ABIL[def.key]} ${L.abil(S, 0, p, def.key)}）</option>`).join('');
+  const people = mine.map(p => `<div class="person"><div class="top">${gradeTag(p)}<b>${p.name}</b><small>${p.ext ? '県外から招へい' : NAMES[p.home] + '出身'}・役職の給与 月${L.GRADE_PAY[L.gradeOf(p)]}億円</small></div>${abilHtml(p)}
+    <select data-role="${p.id}" aria-label="${p.name}の役職">${opts(p)}</select></div>`).join('') || '<p class="empty">まだ人材がいません。</p>';
+  const cands = L.hireCandidates(S, ADJ, 0).sort((a, b) => (b.pol + b.neg + b.plan + b.pop) - (a.pol + a.neg + a.plan + a.pop));
+  const hires = cands.slice(0, 8).map(p => {
+    const r = L.canHire(S, ADJ, 0, p.id, S.ap);
+    return `<div class="person"><div class="top">${gradeTag(p)}<b>${p.name}</b><small>${NAMES[p.home]}出身・${S.m[p.home].owner === 0 ? '自陣営' : '隣の独立市町村'}</small></div>${abilHtml(p)}
+      <button class="btn hirebtn${r.ok ? ' main' : ''}" data-hire="${p.id}" aria-disabled="${!r.ok}">登用する（${L.hireCost(p)}億円・行動1）</button>${r.ok ? '' : `<span class="why">${r.reason}</span>`}</div>`;
+  }).join('') || '<p class="empty">いま登用できる人材はいません。市町村を広げると見つかります。</p>';
+  openOverlay(`<button class="iconbtn close" id="xBtn" aria-label="閉じる">✕</button><h3>人材</h3>
+    <p class="sub">${mine.length}/${max}人。役職に就けると効果が出ます。役職の給与はランクで変わります（月 C1・B2・A3・S5億円）。${S.m['21207'].owner === 0 ? '美濃和紙の美濃市があるので、企画が+8されています。' : ''}</p>
+    <div class="roles">${roles}</div>
+    <div class="row" style="margin-top:10px"><button class="btn" id="autoBtn">得意な役職におまかせで配置</button></div>
+    <div class="h4">あなたの陣営の人材</div><div class="people">${people}</div>
+    <div class="h4">登用できる人材</div><div class="people">${hires}</div>
+    <div class="h4">県外から招へい（行動1）</div>
+    <p class="sub" style="margin-top:-2px">高いランクの人材を財源で迎えます。得意な能力がどれになるかは選べません。</p>
+    <div class="scouts">${['B', 'A', 'S'].map(g => { const r = L.canScout(S, 0, g, S.ap); const d = L.SCOUT[g];
+      return `<button data-scout="${g}" aria-disabled="${!r.ok}"><span class="grade ${g}">${g}</span><b class="num">${d.cost}億円</b><small>得意 ${d.best[0]}〜${d.best[1]}</small><small>${r.ok ? `給与 月${L.GRADE_PAY[g]}億円` : r.reason}</small></button>`; }).join('')}</div>`);
+  $('xBtn').onclick = closeOverlay;
+  $('autoBtn').onclick = () => { L.autoAssign(S, 0); save(); render(); showStaff(); toast('得意な役職に配置しました'); };
+  for (const sl of document.querySelectorAll('[data-role]')) sl.onchange = () => { L.assignRole(S, 0, Number(sl.dataset.role), sl.value); save(); render(); showStaff(); };
+  for (const b of document.querySelectorAll('[data-scout]')) b.onclick = () => {
+    const g = b.dataset.scout, r = L.canScout(S, 0, g, S.ap);
+    if (!r.ok) { toast(r.reason); return; }
+    const p = L.scout(S, 0, g); S.ap -= 1;
+    const text = `県外から${g}ランクの${p.name}を招へい${fillEmpty(p)}`;
+    S.log.push({ t: S.turn, text, kind: 'good' }); seenLog = S.log.length;
+    toast(text); save(); render(); showStaff();
+  };
+  for (const b of document.querySelectorAll('[data-hire]')) b.onclick = () => {
+    const id = Number(b.dataset.hire), r = L.canHire(S, ADJ, 0, id, S.ap);
+    if (!r.ok) { toast(r.reason); return; }
+    const text = L.hire(S, NAMES, 0, id) + fillEmpty(S.staff.find(q => q.id === id)); S.ap -= 1;
+    S.log.push({ t: S.turn, text, kind: 'good' }); seenLog = S.log.length;
+    toast(text); save(); render(); showStaff();
+  };
+}
+function showFactions() {
+  const month = L.dateOf(S.turn).month;
+  const rows = S.factions.map(f => `<div class="fac${f.alive ? '' : ' dead'}"><i class="dot" style="background:${colorVar(f.id)}"></i>
+    <div class="nm">${f.name}${f.alive ? '' : '（消滅）'}</div>
+    <div class="facts"><span>本拠 <b>${NAMES[f.capital]}</b></span><span>市町村 <b class="num">${L.owned(S, f.id).length}</b></span>
+    <span>人口 <b class="num">${L.totalPop(S, f.id).toFixed(0)}千人</b></span><span>財源 <b class="num">${f.money}億円</b></span>
+    <span>平均満足度 <b class="num">${Math.round(L.avgSat(S, f.id)) || 0}</b></span><span>月収入 <b class="num">${L.factionIncome(S, f.id, month)}億円</b></span></div></div>`).join('');
+  const talks = Object.keys(S.m).filter(c => S.m[c].talk && S.m[c].talk.f === 0).map(c => `${NAMES[c]}（あと${S.m[c].talk.left}か月）`);
+  const regions = L.REGIONS.map(r => { const cs = Object.keys(S.m).filter(c => L.INFO[c][0] === r); return `${r} ${cs.filter(c => S.m[c].owner === 0).length}/${cs.length}`; }).join('　');
+  openOverlay(`<button class="iconbtn close" id="xBtn" aria-label="閉じる">✕</button><h3>陣営</h3>
+    <p class="sub">圏域ごとの支配：${regions}</p><div class="factions">${rows}</div>
+    <p class="sub" style="margin-top:14px">進行中の合併協議：${talks.length ? talks.join('、') : 'なし'}（同時に${S.talksMax}件まで）</p>`);
+  $('xBtn').onclick = closeOverlay;
+}
+function showNews() {
+  seenLog = S.log.length; renderStatus();
+  let html = '', lastT = null;
+  for (const e of [...S.log].reverse().slice(0, 120)) {
+    if (e.t !== lastT) { if (lastT !== null) html += '</ul>'; html += `<h5>${L.dateOf(e.t).label}</h5><ul class="log">`; lastT = e.t; }
+    html += `<li class="${e.kind}">${e.text}</li>`;
+  }
+  openOverlay(`<button class="iconbtn close" id="xBtn" aria-label="閉じる">✕</button><h3>ニュース</h3><p class="sub">新しい順。ライバルの動きは灰色で表示</p>${html}</ul>`);
+  $('xBtn').onclick = closeOverlay;
+}
+function showMenu() {
+  openOverlay(`<button class="iconbtn close" id="xBtn" aria-label="閉じる">✕</button><h3>メニュー</h3>
+    <p class="sub">進み具合はこのブラウザに自動で保存されます。</p>
+    <label class="toggle"><input type="checkbox" id="rpToggle" ${prefs.replay ? 'checked' : ''}>月を終えたあと、相手の動きを地図で見せる</label>
+    <ul class="howto">${HOWTO}</ul>
+    <div class="row"><button class="btn danger" id="resetBtn">最初からやり直す</button></div><div id="confirmBox"></div>`);
+  $('xBtn').onclick = closeOverlay;
+  $('rpToggle').onchange = e => { prefs.replay = e.target.checked; savePrefs(); };
+  $('resetBtn').onclick = () => {
+    $('confirmBox').innerHTML = `<p style="margin:12px 0 0">今の進み具合は消えます。やり直しますか？</p><div class="row"><button class="btn danger" id="yesReset">やり直す</button><button class="btn" id="noReset">やめる</button></div>`;
+    $('yesReset').onclick = () => { clearSave(); showTitle(); };
+    $('noReset').onclick = () => { $('confirmBox').innerHTML = ''; };
+  };
+}
+const HOWTO = `<li><b>交流事業</b>で隣の市町村との関係度を上げる</li>
+  <li>関係度50で<b>連携協定</b>（収入の一部が入る）、70で<b>合併協議</b></li>
+  <li>協議の3か月後に<b>住民投票</b>。満足度が高いほど賛成が増える</li>
+  <li>ライバルの市町村は、相手の満足度が低いか、こちらの平均満足度が8以上高いと切り崩せる</li>
+  <li>ほかの陣営が協議中の市町村には<b>対抗提案</b>で割り込める。<b>条件を上乗せ</b>した段数が多いほど選ばれやすい</li>
+  <li><b>人材</b>を登用して役職（副市長・企画課長・交渉担当・観光大使）に就けると、税収や内政、住民投票に効く。合併するとその市町村ゆかりの人材が加わる</li>
+  <li>内政と交流事業は<b>予算規模</b>を選べる。大きいほど効果が大きいが割高</li>
+  <li>人材にはC〜Sのランクがあり、<b>県外から招へい</b>で高ランクを迎えられる</li>
+  <li>相手の本拠地は、その陣営の市町村が3つ以下になると切り崩せる</li>
+  <li>自分の市町村が合併協議をかけられたら、<b>引き留め</b>で住民投票の賛成を下げられる（最大3段）</li>
+  <li>財源のマイナスが3か月続くか、満足度が20を下回ると負け</li>`;
+
+// ---------- タイトル ----------
+const PICKS = [['やさしい', ['21201', '21202']], ['ふつう', ['21205', '21204', '21203']], ['むずかしい', ['21361', '21505']], ['超むずかしい', ['21604', '21507']]];
+// 開始時の財源と、最初の月（4月）の収支を試算する
+const PREVIEW = {};
+function startPreview(c) {
+  if (!PREVIEW[c]) {
+    const st = L.newGame(MAP, c, 1);
+    PREVIEW[c] = { st, money: st.factions[0].money, net: L.factionIncome(st, 0, 4) - L.upkeep(st, 0) };
+  }
+  return PREVIEW[c];
+}
+const signed = n => (n >= 0 ? '+' : '−') + Math.abs(n);
+// 開始前に、その市町村の特産・人材・数値・ライバルを確かめる画面
+let lastPick = null;
+function showStartDetail(c) {
+  lastPick = c;
+  const pv = startPreview(c), st = pv.st, x = st.m[c], info = L.INFO[c];
+  const tag = info[2];
+  const meterP = (lb, v) => `<div class="meter"><span>${lb}</span><div class="bar"><i style="width:${Math.round(v)}%"></i></div><b class="num">${Math.round(v)}</b></div>`;
+  const staff = st.staff.filter(p => p.f === 0).map(p => {
+    const keys = Object.keys(L.ABIL), best = keys.reduce((a, b) => p[b] > p[a] ? b : a), g = L.gradeOf(p);
+    const role = p.role ? L.ROLES[p.role] : null;
+    const val = p.role ? L.abil(st, 0, p, role.key) : 0;
+    return `<div class="person"><div class="top"><span class="grade ${g}">${g}</span><b>${p.name}</b><small>${role ? role.label + 'に就任' : '役職なし'}</small></div>
+      <div class="abil">${keys.map(k => `<span class="${k === best ? 'best' : ''}">${L.ABIL[k]}<b class="num">${L.abil(st, 0, p, k)}</b></span>`).join('')}</div>
+      ${role ? `<span class="why" style="color:var(--good)">${role.label}の効果：${roleEffect(p.role, val)}（給与 月${L.GRADE_PAY[g]}億円）</span>` : ''}</div>`;
+  }).join('') || '<p class="empty">ゆかりの人材はいません。</p>';
+  const rivals = st.factions.slice(1).map(f => `<span class="tag owner" style="background:var(--${f.color})">${f.name}</span>`).join(' ');
+  const nb = ADJ[c].map(n => NAMES[n]).join('、');
+  openOverlay(`<button class="btn" id="backBtn">← 市町村選びに戻る</button>
+    <div class="kicker" style="margin-top:16px">${info[0]}圏域・${L.difficultyOf(c)}</div>
+    <div class="logo" style="font-size:clamp(32px,10vw,48px)">${NAMES[c]}</div>
+    <div class="grid2">
+      <div class="kv"><span>人口</span><b class="num">${info[1]}千人</b></div>
+      <div class="kv"><span>開始時の財源</span><b class="num">${pv.money}億円</b></div>
+      <div class="kv"><span>4月の収入</span><b class="num">${L.factionIncome(st, 0, 4)}億円</b></div>
+      <div class="kv"><span>維持費と給与</span><b class="num">${L.upkeep(st, 0)}億円</b></div>
+      <div class="kv"><span>月収支</span><b class="num" style="color:${pv.net >= 0 ? 'var(--good)' : 'var(--bad)'}">${signed(pv.net)}億円</b></div>
+      <div class="kv"><span>うち地方交付税</span><b class="num">${L.grantOf(st, 0).toFixed(1)}億円</b></div>
+    </div>
+    <div class="h4">特産</div>
+    ${tag ? `<p style="margin:0"><span class="tag">${tag}</span></p><p class="note" style="color:var(--ink)">${L.tagInfo(tag)}</p>` : '<p class="note">特産タグはありません。産業と観光を伸ばして個性をつくります。</p>'}
+    <div class="h4">数値</div>
+    <div class="meters">${meterP('産業力', x.ind)}${meterP('観光力', x.tour)}${meterP('満足度', x.sat)}${meterP('防災力', x.dis)}</div>
+    <div class="h4">最初からいる人材</div><div class="people">${staff}</div>
+    <div class="h4">隣の市町村（${ADJ[c].length}）</div><p class="note" style="margin:0">${nb}</p>
+    <div class="h4">ライバル</div><p style="margin:0;display:flex;gap:6px;flex-wrap:wrap">${rivals}</p>
+    <div class="stickygo"><button class="btn main" id="goBtn">${NAMES[c]}で始める</button></div>`, 'title-panel');
+  $('backBtn').onclick = showTitle;
+  $('goBtn').onclick = () => startNew(c);
+}
+function showTitle() {
+  const saved = loadSaved();
+  const groups = PICKS.map(([lv, cs]) => `<div><h4>${lv}</h4><div class="opts">${cs.map(c => `<button data-start="${c}">${NAMES[c]}<small>${L.INFO[c][0]}・人口${L.INFO[c][1]}千人${L.INFO[c][2] ? '・' + L.INFO[c][2] : ''}</small><span class="money num">財源 ${startPreview(c).money}億円・月収支 ${signed(startPreview(c).net)}億円</span></button>`).join('')}</div></div>`).join('');
+  const opts = L.REGIONS.map(r => `<optgroup label="${r}圏域">${Object.keys(NAMES).filter(c => L.INFO[c][0] === r).map(c => `<option value="${c}">${NAMES[c]}（${L.difficultyOf(c)}・財源${startPreview(c).money}億・月${signed(startPreview(c).net)}億）</option>`).join('')}</optgroup>`).join('');
+  openOverlay(`<div class="kicker">令和8年4月　岐阜県・21市19町2村</div>
+    <div class="logo">岐阜<em>統一</em>戦記</div>
+    <p class="lead">あなたは岐阜県のある市町村の首長。交流と協定で信頼を集め、住民投票で合併を重ね、42市町村をひとつにまとめてください。</p>
+    ${saved && !saved.over ? `<div class="row" style="margin:0 0 18px"><button class="btn main" id="contBtn">つづきから（${L.dateOf(saved.turn).label}・${saved.factions[0] ? NAMES[saved.factions[0].capital] : ''}）</button></div>` : ''}
+    <div class="pick"><div><h4>首長になる市町村を選ぶ</h4><p class="sub" style="margin:0">タップすると特産や最初の人材などの詳細が見られます。月収支は最初の月（4月）の収入から維持費と給与を引いた額で、季節や内政で変わります。</p></div>${groups}
+    <div><h4>ほかの市町村から選ぶ</h4><div class="selrow"><select id="startSel" aria-label="開始する市町村">${opts}</select><button class="btn" id="selStart">詳細を見る</button></div><p class="sub num" id="selPreview" style="margin:8px 0 0"></p></div></div>
+    <ul class="howto">${HOWTO}</ul>
+    <p class="sub" style="margin-top:14px">人口は統計を丸めた概数、そのほかの数値はゲーム用です。登場する陣営や出来事は架空です。地図：国土数値情報（行政区域データ）を加工</p>`, 'title-panel');
+  if (lastPick) { const el = document.querySelector(`[data-start="${lastPick}"]`); if (el) el.scrollIntoView({ block: 'center' }); else if ($('startSel')) { $('startSel').value = lastPick; } }
+  for (const b of document.querySelectorAll('[data-start]')) b.onclick = () => showStartDetail(b.dataset.start);
+  $('selStart').onclick = () => showStartDetail($('startSel').value);
+  const showPrev = () => { const c = $('startSel').value, pv = startPreview(c); $('selPreview').textContent = `${NAMES[c]}：人口${L.INFO[c][1]}千人・開始時の財源 ${pv.money}億円・月収支 ${signed(pv.net)}億円（4月時点）`; };
+  $('startSel').onchange = showPrev; showPrev();
+  if ($('contBtn')) $('contBtn').onclick = () => { S = saved; afterLoad(); };
+}
+function startNew(code) {
+  S = L.newGame(MAP, code, (Date.now() & 0x7fffffff));
+  afterLoad(); save();
+  toast(`${NAMES[code]}の首長に就任しました`);
+}
+function afterLoad() {
+  L.ensureStaff(S);
+  sel = null; seenLog = S.log.length; closeOverlay(); render();
+  const b = bboxOf(Object.keys(NAMES));
+  vb = fitBox(b, 14); setVB(); lastBox = { x: b.x - 14, y: b.y - 14, w: b.w + 28, h: b.h + 28 };
+  for (const x of $('chips').children) x.setAttribute('aria-pressed', x.dataset.r === '全県' ? 'true' : 'false');
+}
+
+$('endBtn').onclick = endMonth;
+$('facBtn').onclick = () => S && showFactions();
+$('staffBtn').onclick = () => S && !replay && showStaff();
+$('newsBtn').onclick = () => S && showNews();
+$('menuBtn').onclick = () => S && showMenu();
+$('overlay').addEventListener('click', e => { if (e.target === $('overlay') && S && !$('panel').classList.contains('title-panel') && !queue.length && !$('okBtn') && !$('againBtn')) closeOverlay(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('overlay').hidden && $('xBtn')) closeOverlay(); });
+
+function start() {
+  buildMap();
+  vb = fitBox({ x: 0, y: 0, w: MAP.w, h: MAP.h }, 14); setVB();
+  showTitle();
+}
+start();
