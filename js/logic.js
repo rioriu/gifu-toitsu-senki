@@ -151,8 +151,43 @@
 
 
   // ---------- 人材 ----------
-  const SURNAMES = ['加藤', '伊藤', '林', '山田', '渡辺', '小川', '長尾', '堀', '河合', '安藤', '大野', '早川', '松井', '杉山', '野村', '古田', '水野', '坂井', '土屋', '森', '日比野', '各務', '纐纈', '可知', '棚橋', '国枝', '後藤', '酒井', '牧野', '服部'];
-  const GIVEN = ['健一', '真理子', '浩二', '由美', '隆', '恵子', '翔太', '彩', '誠', '千尋', '大輔', '美穂', '拓也', '香織', '修', '葵', '直樹', '智子', '亮', '陽菜', '慎吾', '明美', '悠真', '紀子', '和也', '玲奈', '剛', '咲', '康弘', '里美'];
+  // 市町村ゆかりの人材（人口5万人以上の市は2人）
+  const LOCAL_NAMES = {
+    '21201': ['織田 信', '鵜飼 長良'], '21209': ['羽島 ひかり', '竹鼻 藤乃'], '21213': ['空野 翔', '境川 桜'],
+    '21215': ['伊自良 柿乃'], '21216': ['富有 実', '美江 宿'], '21218': ['根尾 淡墨'],
+    '21302': ['根木 葱太'], '21303': ['小栗 駿'], '21421': ['安藤 守'],
+    '21202': ['松尾 芭奈', '清水 湧'], '21221': ['平田 靱乃'], '21341': ['滝口 孝'],
+    '21361': ['竹中 半太'], '21362': ['石田 光成'], '21381': ['日吉 ばら奈'],
+    '21382': ['輪中 堤'], '21383': ['結城 縁'], '21401': ['谷汲 巡'],
+    '21403': ['柿野 薔子'], '21404': ['池田 霞'],
+    '21205': ['兼元 研', '根道 萌音'], '21207': ['卯建 紙子'], '21211': ['坪内 逍', '蜂屋 柿之介'],
+    '21214': ['明智 光', '森 蘭'], '21219': ['八幡 踊'], '21501': ['坂口 祝'],
+    '21502': ['半布 里子'], '21503': ['舟木 漕'], '21504': ['上麻生 礫'],
+    '21505': ['杉原 千歩'], '21506': ['檜山 茶々'], '21507': ['槌乃 小太郎'],
+    '21521': ['中山 道子'],
+    '21204': ['暑井 夏樹', '笠原 彩'], '21206': ['島崎 夜明', '栗山 きん'], '21208': ['土岐 源'],
+    '21210': ['岩村 艶'], '21212': ['織部 翠', '窯元 志野'],
+    '21203': ['飛騨 匠', '金森 宗'], '21217': ['古川 起'], '21220': ['湯之島 泉'],
+    '21604': ['荻町 結']
+  };
+  // 県外から招へいする人材：出身県の名物にちなむ
+  const OUTSIDERS = [
+    ['北海道', '十勝 牧'], ['青森県', '津軽 林檎'], ['宮城県', '伊達 政子'], ['秋田県', '比内 小町'],
+    ['山形県', '佐藤 錦'], ['茨城県', '水戸 納'], ['栃木県', '宇都宮 餃太'], ['群馬県', '上州 空風'],
+    ['東京都', '江戸川 粋'], ['新潟県', '越後 米蔵'], ['富山県', '黒部 鱒子'], ['石川県', '加賀 百万'],
+    ['福井県', '越前 蟹子'], ['長野県', '信濃 蕎麦子'], ['静岡県', '駿河 富士子'], ['愛知県', '味噌川 鯱'],
+    ['三重県', '鈴鹿 走'], ['滋賀県', '琵琶 湖太郎'], ['京都府', '祇園 雅'], ['大阪府', '浪速 商人'],
+    ['兵庫県', '明石 焼太'], ['奈良県', '奈良 鹿之助'], ['広島県', '宮島 紅葉'], ['香川県', '讃岐 麺太'],
+    ['愛媛県', '伊予 柑太'], ['高知県', '坂本 竜真'], ['福岡県', '博多 明太'], ['熊本県', '肥後 熊太'],
+    ['鹿児島県', '西郷 隆子'], ['沖縄県', '琉球 美海']
+  ];
+  // まだ陣営にいない県外人材から選ぶ（全員いれば重複を許す）
+  function pickOutsider(st, r) {
+    const used = new Set((st.staff || []).filter(p => p.ext).map(p => p.name));
+    const free = OUTSIDERS.filter(o => !used.has(o[1]));
+    const pool = free.length ? free : OUTSIDERS;
+    return pool[Math.floor(r * pool.length)];
+  }
   const ROLES = {
     deputy: { label: '副市長', key: 'pol', what: '全体の税収が上がる' },
     planning: { label: '企画課長', key: 'plan', what: '内政コマンドの効果が上がる' },
@@ -162,10 +197,20 @@
   const ABIL = { pol: '政策', neg: '交渉', plan: '企画', pop: '人望' };
   function ensureStaff(st) {
     if (st.staff) {
-      // 古い版で名前が欠けた人材を直す
-      for (const p of st.staff) if (/undefined/.test(p.name)) p.name = p.name.replace('undefined', GIVEN[hash(p.name + p.id) % GIVEN.length]);
+      // 古い版の名前を、ゆかりの名前に付け替える
+      if (!st.namesV) {
+        const k = {};
+        for (const p of st.staff) {
+          if (p.ext) { const o = OUTSIDERS[hash('ext' + p.id) % OUTSIDERS.length]; p.pref = o[0]; p.name = o[1]; continue; }
+          const i = k[p.home] = (k[p.home] || 0); k[p.home]++;
+          const list = LOCAL_NAMES[p.home];
+          if (list && list[i]) p.name = list[i];
+        }
+        st.namesV = 1;
+      }
       return;
     }
+    st.namesV = 1;
     st.staff = [];
     let id = 0;
     for (const c in st.m) {
@@ -176,7 +221,7 @@
         for (const a of Object.keys(ABIL)) ab[a] = 30 + (hash(c + a + k) % 41);
         const keys = Object.keys(ABIL), best = keys[(h >>> 3) % 4];
         ab[best] = 72 + (h % 21);
-        st.staff.push({ id: id++, name: SURNAMES[h % SURNAMES.length] + ' ' + GIVEN[(h >>> 7) % GIVEN.length], home: c, f: -1, role: null, ...ab });
+        st.staff.push({ id: id++, name: LOCAL_NAMES[c][k], home: c, f: -1, role: null, ...ab });
       }
     }
     for (const fac of st.factions) for (const p of st.staff) if (p.home === fac.capital) p.f = fac.id;
@@ -203,7 +248,8 @@
     const best = keys[Math.floor(rnd(st) * 4)];
     ab[best] = g.best[0] + Math.floor(rnd(st) * (g.best[1] - g.best[0] + 1));
     const id = st.staff.reduce((m, q) => Math.max(m, q.id), -1) + 1;
-    const p = { id, name: SURNAMES[Math.floor(rnd(st) * SURNAMES.length)] + ' ' + GIVEN[Math.floor(rnd(st) * GIVEN.length)], home: st.factions[f].capital, ext: true, f, role: null, ...ab };
+    const [pref, name] = pickOutsider(st, rnd(st));
+    const p = { id, name, pref, home: st.factions[f].capital, ext: true, f, role: null, ...ab };
     st.staff.push(p);
     return p;
   }
@@ -251,7 +297,7 @@
     // お金に余裕があれば県外から招へい
     if (apRef.ap > 0 && staffOf(st, f).length < staffMax(st, f) && rnd(st) < 0.15) {
       const g = fac.money > 700 ? 'S' : fac.money > 350 ? 'A' : fac.money > 160 ? 'B' : null;
-      if (g && canScout(st, f, g, apRef.ap).ok) { apRef.ap--; const p = scout(st, f, g); out.push({ text: `${fac.name}が県外から${g}ランクの${p.name}を招へい`, code: fac.capital, cmd: 'hire', f }); }
+      if (g && canScout(st, f, g, apRef.ap).ok) { apRef.ap--; const p = scout(st, f, g); out.push({ text: `${fac.name}が${p.pref}から${g}ランクの${p.name}を招へい`, code: fac.capital, cmd: 'hire', f }); }
     }
     autoAssign(st, f);
     return out;

@@ -472,7 +472,7 @@ function showStaff() {
     return `<div class="role"><small>${def.label}・${L.ABIL[def.key]}が効く</small><b>${p ? gradeTag(p) + ' ' + p.name : '空席'}</b><span class="eff${p ? '' : ' none'}">${p ? roleEffect(r, v) : def.what}</span></div>`;
   }).join('');
   const opts = p => `<option value="">役職なし</option>` + Object.entries(L.ROLES).map(([r, def]) => `<option value="${r}" ${p.role === r ? 'selected' : ''}>${def.label}（${L.ABIL[def.key]} ${L.abil(S, 0, p, def.key)}）</option>`).join('');
-  const people = mine.map(p => `<div class="person"><div class="top">${gradeTag(p)}<b>${p.name}</b><small>${p.ext ? '県外から招へい' : NAMES[p.home] + '出身'}・役職の給与 月${L.GRADE_PAY[L.gradeOf(p)]}億円</small></div>${abilHtml(p)}
+  const people = mine.map(p => `<div class="person"><div class="top">${gradeTag(p)}<b>${p.name}</b><small>${p.ext ? (p.pref || '県外') + 'から招へい' : NAMES[p.home] + '出身'}・役職の給与 月${L.GRADE_PAY[L.gradeOf(p)]}億円</small></div>${abilHtml(p)}
     <select data-role="${p.id}" aria-label="${p.name}の役職">${opts(p)}</select></div>`).join('') || '<p class="empty">まだ人材がいません。</p>';
   const cands = L.hireCandidates(S, ADJ, 0).sort((a, b) => (b.pol + b.neg + b.plan + b.pop) - (a.pol + a.neg + a.plan + a.pop));
   const hires = cands.slice(0, 8).map(p => {
@@ -497,7 +497,7 @@ function showStaff() {
     const g = b.dataset.scout, r = L.canScout(S, 0, g, S.ap);
     if (!r.ok) { toast(r.reason); return; }
     const p = L.scout(S, 0, g); S.ap -= 1;
-    const text = `県外から${g}ランクの${p.name}を招へい${fillEmpty(p)}`;
+    const text = `${p.pref}から${g}ランクの${p.name}を招へい${fillEmpty(p)}`;
     S.log.push({ t: S.turn, text, kind: 'good' }); seenLog = S.log.length;
     toast(text); save(); render(); showStaff();
   };
