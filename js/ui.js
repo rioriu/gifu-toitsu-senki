@@ -210,7 +210,7 @@ function renderSheet() {
       ? `<p class="empty">まずは<b>隣の市町村をタップ</b>して交流事業で関係度を上げましょう。関係度50で<b>連携協定</b>、70で<b>合併協議</b>に進めます。</p>`
       : `<p class="empty">地図の市町村をタップすると、数値と使えるコマンドが出ます。</p>`;
     sheetFrame(`<div class="head"><h2>${NAMES[me.capital]}陣営</h2><span class="tag">${L.owned(S, 0).length}市町村</span>${goalTag()}</div>
-      <p class="facts num">人口 ${L.totalPop(S, 0).toFixed(1)}千人 · 平均満足度 ${Math.round(L.avgSat(S, 0))} · 収入 ${L.factionIncome(S, 0, L.dateOf(S.turn).month)}億円/月 · 維持費 ${L.upkeep(S, 0)}億円</p>`, tips);
+      <p class="facts num">人口 ${L.totalPop(S, 0).toFixed(1)}千人 · 平均満足度 ${Math.round(L.avgSat(S, 0))} · 収入 ${L.factionIncome(S, 0, L.dateOf(S.turn).month)}億円/月 · 維持費 ${L.upkeep(S, 0)}億円 · 魅力 ${Math.round(L.appeal(S, 0))} · 協議 同時${L.talksMax(S, 0)}件まで</p>`, tips);
     return;
   }
   const c = sel, x = S.m[c], info = L.INFO[c], month = L.dateOf(S.turn).month;
@@ -231,6 +231,10 @@ function renderSheet() {
   if (x.pact.length) notes += `<p class="note">連携協定：${x.pact.map(f => S.factions[f].name).join('、')}</p>`;
   const locals = (S.staff || []).filter(q => q.home === c && !q.ext);
   if (locals.length) notes += `<p class="note">ゆかりの人材：${locals.map(q => `${q.name}（${q.f < 0 ? '未登用' : (q.f === 0 ? 'あなたの陣営' : S.factions[q.f].name)}）`).join('、')}</p>`;
+  if (!mine && L.adjacentTo(S, ADJ, c, 0)) {
+    const dr = L.appealRel(S, 0, c), dv = Math.round(L.appealVote(S, 0, c));
+    notes += `<p class="note">魅力：あなたの陣営 ${Math.round(L.appeal(S, 0))}／${NAMES[c]} ${Math.round(L.appealOf(S, c))}。${dr > 0 ? `関係度が毎月 +${dr.toFixed(1)}` : '魅力の差が10未満なので関係度の自然な伸びはなし'}・住民投票の賛成 ${dv >= 0 ? '+' : '−'}${Math.abs(dv)}</p>`;
+  }
   if (!mine && !L.adjacentTo(S, ADJ, c, 0)) notes += `<p class="note">あなたの陣営と隣り合っていないため、外交はまだできません。</p>`;
   const t = x.talk;
   const third = !t ? 'talk' : (t.rival !== undefined ? (L.inTalk(t, 0) ? 'raise' : 'talk') : (t.f !== 0 ? 'counter' : 'talk'));
@@ -241,11 +245,14 @@ function renderSheet() {
   const btns = cmds.map(k => {
     const sc = L.SCALABLE.includes(k) ? S.budget : undefined;
     const def = L.CMDS[k], r = L.canDo(S, ADJ, 0, k, c, S.ap, sc), cost = L.cmdCost(S, k, c, sc);
-    const note = EFF[k] ? `${EFF[k]} +${L.cmdEffect(S, 0, k, sc)}` : def.note;
+    const e = L.cmdEffect(S, 0, k, sc);
+    // 産業力・観光力は陣営の魅力にも効くので、上がり幅を添える
+    const ga = (k === 'ind' || k === 'tour') ? Math.min(e, 100 - x[k]) / 2 * x.pop / (L.totalPop(S, 0) || 1) : 0;
+    const note = EFF[k] ? `${EFF[k]} +${e}${ga >= 0.05 ? `・陣営の魅力 +${ga.toFixed(1)}` : ''}` : def.note;
     return `<button class="cmd${['talk', 'counter', 'raise', 'keep'].includes(k) ? ' primary' : ''}" data-cmd="${k}" aria-disabled="${!r.ok}">
       <span class="ttl"><strong>${def.label}</strong><span class="cost num">${cost ? cost + '億・' : ''}行動${def.ap}</span></span><small>${r.ok ? note : r.reason}</small></button>`;
   }).join('');
-  const relTxt = mine ? '' : ` · 関係度 ${Math.round(S.rel[0][c])}`;
+  const relTxt = mine ? ` · 魅力 ${Math.round(L.appealOf(S, c))}` : ` · 関係度 ${Math.round(S.rel[0][c])}`;
   sheetFrame(`<div class="head"><h2>${NAMES[c]}</h2>${ownerTag}<span class="tag">${info[0]}</span>${tagTag}</div>
     <p class="facts num">人口 ${x.pop.toFixed(1)}千人 · 満足度 ${Math.round(x.sat)}${relTxt} · 収入 ${L.incomeOf(S, c, month).toFixed(1)}億円${alert ? ` <b class="alert">${alert}</b>` : ''}</p>`,
     `<div class="meters">${meter('産業力', x.ind)}${meter('観光力', x.tour)}${meter('満足度', x.sat)}${meter('防災力', x.dis)}${mine ? '' : meter('関係度', S.rel[0][c], 'rel')}</div>
@@ -515,12 +522,12 @@ function showFactions() {
     <div class="nm">${f.name}${f.alive ? '' : '（消滅）'}</div>
     <div class="facts"><span>本拠 <b>${NAMES[f.capital]}</b></span><span>市町村 <b class="num">${L.owned(S, f.id).length}</b></span>
     <span>人口 <b class="num">${L.totalPop(S, f.id).toFixed(0)}千人</b></span><span>財源 <b class="num">${f.money}億円</b></span>
-    <span>平均満足度 <b class="num">${Math.round(L.avgSat(S, f.id)) || 0}</b></span><span>月収入 <b class="num">${L.factionIncome(S, f.id, month)}億円</b></span></div></div>`).join('');
+    <span>平均満足度 <b class="num">${Math.round(L.avgSat(S, f.id)) || 0}</b></span><span>魅力 <b class="num">${Math.round(L.appeal(S, f.id)) || 0}</b></span><span>月収入 <b class="num">${L.factionIncome(S, f.id, month)}億円</b></span></div></div>`).join('');
   const talks = Object.keys(S.m).filter(c => S.m[c].talk && S.m[c].talk.f === 0).map(c => `${NAMES[c]}（あと${S.m[c].talk.left}か月）`);
   const regions = L.REGIONS.map(r => { const cs = L.regionCodes(r), t = `${r} ${cs.filter(c => S.m[c].owner === 0).length}/${cs.length}`; return S.mode === 'region' && S.goal === r ? `<b>${t}（目標）</b>` : t; }).join('　');
   openOverlay(`<button class="iconbtn close" id="xBtn" aria-label="閉じる">✕</button><h3>陣営</h3>
     <p class="sub">圏域ごとの支配：${regions}</p><div class="factions">${rows}</div>
-    <p class="sub" style="margin-top:14px">進行中の合併協議：${talks.length ? talks.join('、') : 'なし'}（同時に${S.talksMax}件まで）</p>`);
+    <p class="sub" style="margin-top:14px">進行中の合併協議：${talks.length ? talks.join('、') : 'なし'}（同時に${L.talksMax(S, 0)}件まで。陣営の魅力${L.APPEAL_TALKS.join('・')}でそれぞれ1件増える）</p>`);
   $('xBtn').onclick = closeOverlay;
 }
 function showNews() {
@@ -555,6 +562,8 @@ const HOWTO = `<li><b>交流事業</b>で隣の市町村との関係度を上げ
   <li>ライバルの市町村は、相手の満足度が低いか、こちらの平均満足度が8以上高いと切り崩せる</li>
   <li>ほかの陣営が協議中の市町村には<b>対抗提案</b>で割り込める。<b>条件を上乗せ</b>した段数が多いほど選ばれやすい</li>
   <li><b>人材</b>を登用して役職（副市長・企画課長・交渉担当・観光大使）に就けると、税収や内政、住民投票に効く。合併するとその市町村ゆかりの人材が加わる</li>
+  <li><b>魅力</b>は産業力と観光力の平均。陣営の魅力が相手より10以上高いと関係度が毎月自然に上がり、住民投票の賛成も増える。魅力${L.APPEAL_TALKS.join('・')}で同時に進められる協議が1件ずつ増える</li>
+  <li>産業力と観光力は何もしないと少しずつ下がる。<b>産業振興</b>と<b>観光PR</b>で保つ</li>
   <li>内政と交流事業は<b>予算規模</b>を選べる。大きいほど効果が大きいが割高</li>
   <li>人材にはC〜Sのランクがあり、<b>県外から招へい</b>で高ランクを迎えられる</li>
   <li>相手の本拠地は、その陣営の市町村が3つ以下になると切り崩せる</li>
@@ -565,12 +574,14 @@ const HOWTO = `<li><b>交流事業</b>で隣の市町村との関係度を上げ
 const PICKS = [['やさしい', ['21201', '21202']], ['ふつう', ['21205', '21204', '21203']], ['むずかしい', ['21361', '21505']], ['超むずかしい', ['21604', '21507']]];
 // 開始時の財源と、最初の月（4月）の収支を試算する
 const PREVIEW = {};
-function startPreview(c) {
-  if (!PREVIEW[c]) {
-    const st = L.newGame(MAP, c, 1);
-    PREVIEW[c] = { st, money: st.factions[0].money, net: L.factionIncome(st, 0, 4) - L.upkeep(st, 0) };
+// 圏域制覇ではライバルの置き方が変わるので、遊び方ごとに試算する
+function startPreview(c, mode) {
+  const k = c + ':' + (mode || 'unify');
+  if (!PREVIEW[k]) {
+    const st = L.newGame(MAP, c, 1, mode);
+    PREVIEW[k] = { st, money: st.factions[0].money, net: L.factionIncome(st, 0, 4) - L.upkeep(st, 0) };
   }
-  return PREVIEW[c];
+  return PREVIEW[k];
 }
 const signed = n => (n >= 0 ? '+' : '−') + Math.abs(n);
 const pickMode = () => prefs.mode === 'region' ? 'region' : 'unify';
@@ -580,15 +591,16 @@ function modeHtml() {
 // 圏域制覇での目標と、その圏域に本拠地を置くライバル
 function goalHtml(st, c) {
   const r = L.INFO[c][0], cs = L.regionCodes(r);
-  const rivals = st.factions.slice(1).filter(f => L.INFO[f.capital][0] === r);
-  return `<div class="h4">目標：${r}圏域（${cs.length}市町村）の制覇</div><p class="note" style="margin:0">${cs.map(k => NAMES[k]).join('、')}</p>
-    ${rivals.length ? `<p class="note" style="color:var(--bad)">圏域内に${rivals.map(f => f.name).join('・')}の本拠地があります。本拠地は、その陣営の市町村が3つ以下になると切り崩せます。</p>` : ''}`;
+  // 圏域の外で接するライバル（境目から入ってくる）
+  const border = st.factions.slice(1).filter(f => ADJ[f.capital].some(k => L.INFO[k][0] === r));
+  return `<div class="h4">目標：${r}圏域（${cs.length}市町村・${L.regionLength(r)}）の制覇</div><p class="note" style="margin:0">${cs.map(k => NAMES[k]).join('、')}</p>
+    ${border.length ? `<p class="note" style="color:var(--bad)">圏域のすぐ外に${border.map(f => f.name).join('・')}がいて、境目から圏域の市町村を狙ってきます。</p>` : ''}`;
 }
 // 開始前に、その市町村の特産・人材・数値・ライバルを確かめる画面
 let lastPick = null;
 function showStartDetail(c) {
   lastPick = c;
-  const pv = startPreview(c), st = pv.st, x = st.m[c], info = L.INFO[c];
+  const pv = startPreview(c, pickMode()), st = pv.st, x = st.m[c], info = L.INFO[c];
   const tag = info[2];
   const meterP = (lb, v) => `<div class="meter"><span>${lb}</span><div class="bar"><i style="width:${Math.round(v)}%"></i></div><b class="num">${Math.round(v)}</b></div>`;
   const staff = st.staff.filter(p => p.f === 0).map(p => {
@@ -611,6 +623,8 @@ function showStartDetail(c) {
       <div class="kv"><span>維持費と給与</span><b class="num">${L.upkeep(st, 0)}億円</b></div>
       <div class="kv"><span>月収支</span><b class="num" style="color:${pv.net >= 0 ? 'var(--good)' : 'var(--bad)'}">${signed(pv.net)}億円</b></div>
       <div class="kv"><span>うち地方交付税</span><b class="num">${L.grantOf(st, 0).toFixed(1)}億円</b></div>
+      <div class="kv"><span>魅力</span><b class="num">${Math.round(L.appeal(st, 0))}</b></div>
+      <div class="kv"><span>同時に進められる協議</span><b class="num">${L.talksMax(st, 0)}件</b></div>
     </div>
     <div class="h4">特産</div>
     ${tag ? `<p style="margin:0"><span class="tag">${tag}</span></p><p class="note" style="color:var(--ink)">${L.tagInfo(tag)}</p>` : '<p class="note">特産タグはありません。産業と観光を伸ばして個性をつくります。</p>'}

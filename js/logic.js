@@ -82,8 +82,10 @@
   // 遊び方：県内統一（42市町村）か、圏域制覇（スタート地点の圏域だけ）
   const MODES = {
     unify: { label: '県内統一', note: '県内42市町村をすべて自陣営にすると勝ち。1〜2時間' },
-    region: { label: '圏域制覇', note: 'スタート地点の圏域をすべて自陣営にすると勝ち。30分ほど' }
+    region: { label: '圏域制覇', note: 'スタート地点の圏域をすべて自陣営にすると勝ち。飛騨・東濃は短め、中濃は長め' }
   };
+  // 圏域制覇の長さの目安（市町村の数で決まる）
+  function regionLength(r) { const n = regionCodes(r).length; return n <= 5 ? '短め' : n <= 11 ? 'ふつう' : '長め'; }
   function regionCodes(r) { return Object.keys(INFO).filter(c => INFO[c][0] === r); }
   // いまの目標：対象の市町村と、その名前
   function goalOf(st) {
@@ -99,10 +101,18 @@
     if (st.mode === 'region') st.goal = INFO[startCode][0];
     // ライバルは、プレイヤーと隣り合わない主要都市から3つ
     const rivals = [];
-    for (const c of RIVAL_CANDIDATES) {
+    const near = c => c === startCode || adj[startCode].includes(c) || rivals.some(r => adj[r].includes(c));
+    let cands = RIVAL_CANDIDATES;
+    if (st.mode === 'region') {
+      // 圏域制覇では、目標の圏域の中には置かず、圏域の外で接するいちばん大きな市町村に1陣営を置いて境目で取り合う
+      const goal = regionCodes(st.goal);
+      const border = [...new Set(goal.flatMap(c => adj[c]))].filter(c => !goal.includes(c) && !near(c)).sort((a, b) => INFO[b][1] - INFO[a][1]);
+      if (border.length) rivals.push(border[0]);
+      cands = RIVAL_CANDIDATES.filter(c => INFO[c][0] !== st.goal);
+    }
+    for (const c of cands) {
       if (rivals.length >= 3) break;
-      if (c === startCode || adj[startCode].includes(c)) continue;
-      if (rivals.some(r => adj[r].includes(c))) continue;
+      if (rivals.includes(c) || near(c)) continue;
       rivals.push(c);
     }
     const caps = [startCode, ...rivals];
@@ -148,6 +158,23 @@
     const cs = owned(st, f); const p = totalPop(st, f) || 1;
     return cs.reduce((s, c) => s + st.m[c].sat * st.m[c].pop, 0) / p;
   }
+  // 魅力：産業力と観光力の平均。陣営の魅力は人口で重みをつけた平均
+  function appealOf(st, c) { return (st.m[c].ind + st.m[c].tour) / 2; }
+  function appeal(st, f) {
+    const cs = owned(st, f); const p = totalPop(st, f) || 1;
+    return cs.reduce((s, c) => s + appealOf(st, c) * st.m[c].pop, 0) / p;
+  }
+  // 相手より魅力が10以上高いと隣り合う市町村との関係度が毎月自然に上がる。住民投票は相手より魅力が高いほど賛成が増える
+  const APPEAL_GAP = 10, APPEAL_REL = 0.1, APPEAL_REL_MAX = 3, APPEAL_VOTE = 0.2, APPEAL_VOTE_MIN = -5, APPEAL_VOTE_MAX = 8;
+  function appealRel(st, f, c) { return clamp((appeal(st, f) - appealOf(st, c) - APPEAL_GAP) * APPEAL_REL, 0, APPEAL_REL_MAX); }
+  function appealVote(st, f, c) { return clamp((appeal(st, f) - appealOf(st, c)) * APPEAL_VOTE, APPEAL_VOTE_MIN, APPEAL_VOTE_MAX); }
+  // 陣営の魅力が高いと、同時に進められる合併協議が増える
+  const APPEAL_TALKS = [50, 60];
+  function talksMax(st, f) { const a = appeal(st, f); return st.talksMax + APPEAL_TALKS.filter(v => a >= v).length; }
+  // 何もしないと産業力・観光力は少しずつ下がる（特産の分は残る）
+  const DECAY = 0.01;
+  function floorInd(c) { return 25 + (IND_TAG[INFO[c][2]] || 0); }
+  function floorTour(c) { return 10 + (TOUR_TAG[INFO[c][2]] || 0) * 0.8; }
 
 
   // ---------- 人材 ----------
@@ -452,7 +479,7 @@
         if (t.rival !== undefined) return { ok: false, reason: 'すでに2陣営が競り合っています' };
       }
       if (x.cool[f] > 0) return { ok: false, reason: `否決のため、あと${x.cool[f]}か月は申し入れできません` };
-      if (talksOf(st, f) >= st.talksMax) return { ok: false, reason: `同時に進められる協議は${st.talksMax}件までです` };
+      if (talksOf(st, f) >= talksMax(st, f)) return { ok: false, reason: `同時に進められる協議は${talksMax(st, f)}件までです（陣営の魅力${APPEAL_TALKS[0]}・${APPEAL_TALKS[1]}でそれぞれ1件増えます）` };
       if (x.owner === -1) {
         if (!x.pact.includes(f)) return { ok: false, reason: '先に連携協定を結ぶ必要があります' };
         if (rel < 70) return { ok: false, reason: `関係度が70に届いていません（現在${Math.round(rel)}）` };
@@ -475,12 +502,12 @@
     const n = names[code]; const who = f === 0 ? '' : fac.name + 'が';
     const pb = Math.floor(roleVal(st, f, 'planning') / 25), nb = Math.floor(roleVal(st, f, 'nego') / 15);
     switch (cmd) {
-      case 'ind': x.ind = clamp(x.ind + e, 0, 100); return `${who}${n}で産業振興（産業力 ${x.ind}${sl}）`;
-      case 'tour': x.tour = clamp(x.tour + e, 0, 100); return `${who}${n}の観光PR（観光力 ${x.tour}${sl}）`;
+      case 'ind': x.ind = clamp(x.ind + e, 0, 100); return `${who}${n}で産業振興（産業力 ${Math.round(x.ind)}${sl}）`;
+      case 'tour': x.tour = clamp(x.tour + e, 0, 100); return `${who}${n}の観光PR（観光力 ${Math.round(x.tour)}${sl}）`;
       case 'care': x.sat = clamp(x.sat + e, 0, 100); return `${who}${n}で子育て支援（満足度 ${Math.round(x.sat)}${sl}）`;
       case 'dis': x.dis = clamp(x.dis + e, 0, 100); return `${who}${n}の防災対策（防災力 ${x.dis}${sl}）`;
       case 'invite':
-        if (rnd(st) < 0.55 + x.ind / 400) { x.ind = clamp(x.ind + 12, 0, 100); x.pop += 1 + x.pop * 0.01; return `${who}${n}への企業誘致に成功（産業力 ${x.ind}）`; }
+        if (rnd(st) < 0.55 + x.ind / 400) { x.ind = clamp(x.ind + 12, 0, 100); x.pop += 1 + x.pop * 0.01; return `${who}${n}への企業誘致に成功（産業力 ${Math.round(x.ind)}）`; }
         return `${who}${n}への企業誘致は不調に終わりました`;
       case 'visit': st.rel[f][code] = clamp(st.rel[f][code] + e, 0, 100); return `${who}${n}と交流事業（関係度 ${Math.round(st.rel[f][code])}${sl}）`;
       case 'pact': x.pact.push(f); st.rel[f][code] = clamp(st.rel[f][code] + 5, 0, 100); return `${who}${n}と連携協定を締結`;
@@ -529,6 +556,11 @@
       near.sort((a, b) => st.rel[f][b] - st.rel[f][a]);
       const border = near.filter(c => !st.m[c].talk);
       let done = false;
+      // ときどき、いちばん大きな市町村の魅力を上げる
+      if (fac.money > 40 && rnd(st) < 0.2) {
+        const big = owned(st, f).sort((a, b) => st.m[b].pop - st.m[a].pop)[0];
+        if (big && tryDo(st.m[big].ind <= st.m[big].tour + 15 ? 'ind' : 'tour', big)) continue;
+      }
       if (fac.money > 0) {
         // 自分の市町村が狙われていれば引き留め
         for (const c of owned(st, f)) {
@@ -566,11 +598,11 @@
   }
 
   function offerScore(st, f, code, bid) {
-    return st.rel[f][code] + (avgSat(st, f) - st.m[code].sat) * 0.5 + bid * 8 + rnd(st) * 6;
+    return st.rel[f][code] + (avgSat(st, f) - st.m[code].sat) * 0.5 + appealVote(st, f, code) + bid * 8 + rnd(st) * 6;
   }
   function voteFor(st, f, code, bonus) {
     const x = st.m[code]; const rel = st.rel[f][code];
-    let yes = 50 + (avgSat(st, f) - x.sat) * 0.4 + (rel - 70) * 0.6 + (rnd(st) * 20 - 10) + (bonus || 0) + roleVal(st, f, 'nego') / 12;
+    let yes = 50 + (avgSat(st, f) - x.sat) * 0.4 + (rel - 70) * 0.6 + (rnd(st) * 20 - 10) + (bonus || 0) + roleVal(st, f, 'nego') / 12 + appealVote(st, f, code);
     if (x.pop > totalPop(st, f) * 0.7) yes -= 15;
     if (x.owner !== -1) yes -= 8;
     yes = clamp(yes, 4, 96);
@@ -663,10 +695,15 @@
       x.sat += (target - x.sat) * 0.04;
       if (x.owner >= 0 && st.factions[x.owner].money < 0) x.sat -= 3;
       x.sat = clamp(x.sat, 0, 100);
-      x.pop = Math.max(0.3, x.pop * (1 + (x.sat - 55) * 0.00004));
+      // 人口はゆるやかに減る。満足度と産業力が高いと減り方が小さく、十分高ければ増える
+      x.pop = Math.max(0.3, x.pop * (1 + (x.sat - 60 + (x.ind - 50) * 0.2) * 0.00004));
+      const fi = floorInd(c), ft = floorTour(c);
+      if (x.ind > fi) x.ind -= (x.ind - fi) * DECAY;
+      if (x.tour > ft) x.tour -= (x.tour - ft) * DECAY;
       for (const k in x.cool) if (x.cool[k] > 0) x.cool[k]--;
       for (let f = 0; f < st.factions.length; f++) {
         if (x.owner === f) continue;
+        if (st.factions[f].alive && adjacentTo(st, adj, c, f)) st.rel[f][c] = clamp(st.rel[f][c] + appealRel(st, f, c), 0, 100);
         if (x.pact.includes(f)) st.rel[f][c] = clamp(st.rel[f][c] + 3, 0, 100);
         else if (st.rel[f][c] > 35) st.rel[f][c] -= 0.5;
       }
@@ -748,7 +785,7 @@
     }
   }
 
-  const api = { INFO, REGIONS, MODES, regionCodes, goalOf, continueToUnify, CMDS, dateOf, difficultyOf, newGame, owned, apMax, totalPop, avgSat, incomeOf,
+  const api = { regionLength, talksMax, APPEAL_TALKS, appeal, appealOf, appealRel, appealVote, INFO, REGIONS, MODES, regionCodes, goalOf, continueToUnify, CMDS, dateOf, difficultyOf, newGame, owned, apMax, totalPop, avgSat, incomeOf,
     factionIncome, grantOf, tagInfo, upkeep, cmdCost, cmdEffect, SCALES, SCALABLE, gradeOf, GRADE_PAY, SCOUT, canScout, scout, ROLES, ABIL, ensureStaff, staffOf, staffMax, abil, roleVal, hireCandidates, hireCost, canHire, hire, assignRole, autoAssign, staffUpkeep, aiStaff, inTalk, BID_MAX, KEEP_MAX, KEEP_STEP, canDo, doCmd, endTurn, adjacentTo, talksOf, seasonX, clamp };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.GameLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);
