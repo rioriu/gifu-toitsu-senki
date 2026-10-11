@@ -134,8 +134,11 @@ new ResizeObserver(() => { const r = rect(); if (r.width < 10 || r.height < 10) 
 
 function paintMap() {
   const frontier = new Set(Object.keys(S.m).filter(c => S.m[c].owner === -1 && L.adjacentTo(S, ADJ, c, 0)));
+  // 圏域制覇では、目標の圏域の外を薄くする
+  const goal = S.mode === 'region' ? new Set(L.goalOf(S).codes) : null;
   for (const c in pathEls) {
     const x = S.m[c], p = pathEls[c];
+    p.classList.toggle('out', !!goal && !goal.has(c));
     const own = replay ? replay.owners[c] : x.owner;
     if (own >= 0) {
       const isCap = S.factions[own].capital === c;
@@ -171,7 +174,9 @@ function renderStatus() {
   const mo = $('money'); mo.textContent = `${me.money}億円`; mo.className = 'num' + (me.money < 0 ? ' neg' : '');
   const max = L.apMax(S, 0); $('pips').innerHTML = Array.from({ length: max }, (_, i) => `<i class="${i < S.ap ? 'on' : ''}"></i>`).join('');
   $('pips').setAttribute('aria-label', `行動力 ${S.ap}/${max}`);
-  $('count').textContent = `${L.owned(S, 0).length}/42`;
+  const g = L.goalOf(S);
+  $('countLbl').textContent = S.mode === 'region' ? g.region : '支配'; // 幅が足りないので圏域名だけ
+  $('count').textContent = `${g.codes.filter(c => S.m[c].owner === 0).length}/${g.codes.length}`;
   const nd = L.dateOf(S.turn + 1); $('endSub').textContent = `${nd.month}月へ`;
   const unread = S.log.length - seenLog; const bd = $('newsBadge');
   bd.hidden = unread <= 0; bd.textContent = unread > 99 ? '99+' : unread;
@@ -202,7 +207,7 @@ function renderSheet() {
     const tips = L.owned(S, 0).length === 1 && S.turn < 3
       ? `<p class="empty">まずは<b>隣の市町村をタップ</b>して交流事業で関係度を上げましょう。関係度50で<b>連携協定</b>、70で<b>合併協議</b>に進めます。</p>`
       : `<p class="empty">地図の市町村をタップすると、数値と使えるコマンドが出ます。</p>`;
-    sheetFrame(`<div class="head"><h2>${NAMES[me.capital]}陣営</h2><span class="tag">${L.owned(S, 0).length}市町村</span></div>
+    sheetFrame(`<div class="head"><h2>${NAMES[me.capital]}陣営</h2><span class="tag">${L.owned(S, 0).length}市町村</span>${goalTag()}</div>
       <p class="facts num">人口 ${L.totalPop(S, 0).toFixed(1)}千人 · 平均満足度 ${Math.round(L.avgSat(S, 0))} · 収入 ${L.factionIncome(S, 0, L.dateOf(S.turn).month)}億円/月 · 維持費 ${L.upkeep(S, 0)}億円</p>`, tips);
     return;
   }
@@ -245,6 +250,11 @@ function renderSheet() {
     ${notes}${cmds.some(k => L.SCALABLE.includes(k)) ? budgetHtml() : ''}<div class="cmds">${btns}</div>`);
   for (const b of sh.querySelectorAll('.cmd')) b.onclick = () => runCmd(b.dataset.cmd);
   for (const b of sh.querySelectorAll('[data-scale]')) b.onclick = () => { S.budget = Number(b.dataset.scale); save(); renderSheet(); };
+}
+function goalTag() {
+  if (S.mode !== 'region') return '';
+  const g = L.goalOf(S);
+  return `<span class="tag goal">目標 ${g.label} ${g.codes.filter(c => S.m[c].owner === 0).length}/${g.codes.length}</span>`;
 }
 // 選んだ市町村が台帳に隠れないように地図をずらす
 function ensureVisible(c) {
@@ -417,9 +427,13 @@ function showVote(v, onOk) {
 }
 function showOver() {
   const o = S.over, n = L.owned(S, 0).length;
-  openOverlay(`<h3>${o.win ? '県内統一' : '任期終了'}</h3><p class="sub">${L.dateOf(S.turn).label}</p>
+  const title = !o.win ? '任期終了' : (o.region ? '圏域制覇' : '県内統一');
+  const goOn = o.win && !!o.region;
+  openOverlay(`<h3>${title}</h3><p class="sub">${L.dateOf(S.turn).label}</p>
     <p style="font-size:15px">${o.text}</p><p class="sub">最終的な支配：${n}/42市町村、人口${L.totalPop(S, 0).toFixed(1)}千人</p>
-    <div class="row"><button class="btn main" id="againBtn">新しく始める</button><button class="btn" id="viewBtn">地図を見る</button></div>`);
+    ${goOn ? '<p class="sub">このまま続けて、県内42市町村の統一を目指すこともできます。</p>' : ''}
+    <div class="row">${goOn ? '<button class="btn main" id="goOnBtn">県内統一を目指して続ける</button>' : ''}<button class="btn${goOn ? '' : ' main'}" id="againBtn">新しく始める</button><button class="btn" id="viewBtn">地図を見る</button></div>`);
+  if (goOn) $('goOnBtn').onclick = () => { L.continueToUnify(S); save(); closeOverlay(); render(); toast('県内42市町村の統一を目指します'); };
   $('againBtn').onclick = () => { clearSave(); showTitle(); };
   $('viewBtn').onclick = closeOverlay;
 }
@@ -501,7 +515,7 @@ function showFactions() {
     <span>人口 <b class="num">${L.totalPop(S, f.id).toFixed(0)}千人</b></span><span>財源 <b class="num">${f.money}億円</b></span>
     <span>平均満足度 <b class="num">${Math.round(L.avgSat(S, f.id)) || 0}</b></span><span>月収入 <b class="num">${L.factionIncome(S, f.id, month)}億円</b></span></div></div>`).join('');
   const talks = Object.keys(S.m).filter(c => S.m[c].talk && S.m[c].talk.f === 0).map(c => `${NAMES[c]}（あと${S.m[c].talk.left}か月）`);
-  const regions = L.REGIONS.map(r => { const cs = Object.keys(S.m).filter(c => L.INFO[c][0] === r); return `${r} ${cs.filter(c => S.m[c].owner === 0).length}/${cs.length}`; }).join('　');
+  const regions = L.REGIONS.map(r => { const cs = L.regionCodes(r), t = `${r} ${cs.filter(c => S.m[c].owner === 0).length}/${cs.length}`; return S.mode === 'region' && S.goal === r ? `<b>${t}（目標）</b>` : t; }).join('　');
   openOverlay(`<button class="iconbtn close" id="xBtn" aria-label="閉じる">✕</button><h3>陣営</h3>
     <p class="sub">圏域ごとの支配：${regions}</p><div class="factions">${rows}</div>
     <p class="sub" style="margin-top:14px">進行中の合併協議：${talks.length ? talks.join('、') : 'なし'}（同時に${S.talksMax}件まで）</p>`);
@@ -522,8 +536,10 @@ function showMenu() {
     <p class="sub">進み具合はこのブラウザに自動で保存されます。</p>
     <label class="toggle"><input type="checkbox" id="rpToggle" ${prefs.replay ? 'checked' : ''}>月を終えたあと、相手の動きを地図で見せる</label>
     <ul class="howto">${HOWTO}</ul>
+    ${S.over ? `<div class="row"><button class="btn main" id="overBtn">${S.over.win && S.over.region ? '圏域制覇の結果（続けて遊ぶ）' : '結果を見る'}</button></div>` : ''}
     <div class="row"><button class="btn danger" id="resetBtn">最初からやり直す</button></div><div id="confirmBox"></div>`);
   $('xBtn').onclick = closeOverlay;
+  if ($('overBtn')) $('overBtn').onclick = showOver;
   $('rpToggle').onchange = e => { prefs.replay = e.target.checked; savePrefs(); };
   $('resetBtn').onclick = () => {
     $('confirmBox').innerHTML = `<p style="margin:12px 0 0">今の進み具合は消えます。やり直しますか？</p><div class="row"><button class="btn danger" id="yesReset">やり直す</button><button class="btn" id="noReset">やめる</button></div>`;
@@ -555,6 +571,17 @@ function startPreview(c) {
   return PREVIEW[c];
 }
 const signed = n => (n >= 0 ? '+' : '−') + Math.abs(n);
+const pickMode = () => prefs.mode === 'region' ? 'region' : 'unify';
+function modeHtml() {
+  return `<div><h4>遊び方</h4><div class="modes" role="group" aria-label="遊び方">${Object.entries(L.MODES).map(([k, m]) => `<button data-mode="${k}" aria-pressed="${pickMode() === k}"><b>${m.label}</b><small>${m.note}</small></button>`).join('')}</div></div>`;
+}
+// 圏域制覇での目標と、その圏域に本拠地を置くライバル
+function goalHtml(st, c) {
+  const r = L.INFO[c][0], cs = L.regionCodes(r);
+  const rivals = st.factions.slice(1).filter(f => L.INFO[f.capital][0] === r);
+  return `<div class="h4">目標：${r}圏域（${cs.length}市町村）の制覇</div><p class="note" style="margin:0">${cs.map(k => NAMES[k]).join('、')}</p>
+    ${rivals.length ? `<p class="note" style="color:var(--bad)">圏域内に${rivals.map(f => f.name).join('・')}の本拠地があります。本拠地は、その陣営の市町村が3つ以下になると切り崩せます。</p>` : ''}`;
+}
 // 開始前に、その市町村の特産・人材・数値・ライバルを確かめる画面
 let lastPick = null;
 function showStartDetail(c) {
@@ -573,7 +600,7 @@ function showStartDetail(c) {
   const rivals = st.factions.slice(1).map(f => `<span class="tag owner" style="background:var(--${f.color})">${f.name}</span>`).join(' ');
   const nb = ADJ[c].map(n => NAMES[n]).join('、');
   openOverlay(`<button class="btn" id="backBtn">← 市町村選びに戻る</button>
-    <div class="kicker" style="margin-top:16px">${info[0]}圏域・${L.difficultyOf(c)}</div>
+    <div class="kicker" style="margin-top:16px">${info[0]}圏域・${L.difficultyOf(c)}・${L.MODES[pickMode()].label}</div>
     <div class="logo" style="font-size:clamp(32px,10vw,48px)">${NAMES[c]}</div>
     <div class="grid2">
       <div class="kv"><span>人口</span><b class="num">${info[1]}千人</b></div>
@@ -590,40 +617,49 @@ function showStartDetail(c) {
     <div class="h4">最初からいる人材</div><div class="people">${staff}</div>
     <div class="h4">隣の市町村（${ADJ[c].length}）</div><p class="note" style="margin:0">${nb}</p>
     <div class="h4">ライバル</div><p style="margin:0;display:flex;gap:6px;flex-wrap:wrap">${rivals}</p>
-    <div class="stickygo"><button class="btn main" id="goBtn">${NAMES[c]}で始める</button></div>`, 'title-panel');
+    ${pickMode() === 'region' ? goalHtml(st, c) : ''}
+    <div class="stickygo"><button class="btn main" id="goBtn">${NAMES[c]}で始める（${L.MODES[pickMode()].label}）</button></div>`, 'title-panel');
   $('backBtn').onclick = showTitle;
   $('goBtn').onclick = () => startNew(c);
 }
 function showTitle() {
   const saved = loadSaved();
+  // 圏域制覇を達成したセーブは、県内統一へ続けられるように残す
+  const canCont = saved && (!saved.over || (saved.over.win && saved.over.region));
   const groups = PICKS.map(([lv, cs]) => `<div><h4>${lv}</h4><div class="opts">${cs.map(c => `<button data-start="${c}">${NAMES[c]}<small>${L.INFO[c][0]}・人口${L.INFO[c][1]}千人${L.INFO[c][2] ? '・' + L.INFO[c][2] : ''}</small><span class="money num">財源 ${startPreview(c).money}億円・月収支 ${signed(startPreview(c).net)}億円</span></button>`).join('')}</div></div>`).join('');
   const opts = L.REGIONS.map(r => `<optgroup label="${r}圏域">${Object.keys(NAMES).filter(c => L.INFO[c][0] === r).map(c => `<option value="${c}">${NAMES[c]}（${L.difficultyOf(c)}・財源${startPreview(c).money}億・月${signed(startPreview(c).net)}億）</option>`).join('')}</optgroup>`).join('');
   openOverlay(`<div class="kicker">令和8年4月　岐阜県・21市19町2村</div>
     <div class="logo">岐阜<em>統一</em>戦記</div>
     <p class="lead">あなたは岐阜県のある市町村の首長。交流と協定で信頼を集め、住民投票で合併を重ね、42市町村をひとつにまとめてください。</p>
-    ${saved && !saved.over ? `<div class="row" style="margin:0 0 18px"><button class="btn main" id="contBtn">つづきから（${L.dateOf(saved.turn).label}・${saved.factions[0] ? NAMES[saved.factions[0].capital] : ''}）</button></div>` : ''}
-    <div class="pick"><div><h4>首長になる市町村を選ぶ</h4><p class="sub" style="margin:0">タップすると特産や最初の人材などの詳細が見られます。月収支は最初の月（4月）の収入から維持費と給与を引いた額で、季節や内政で変わります。</p></div>${groups}
+    ${canCont ? `<div class="row" style="margin:0 0 18px"><button class="btn main" id="contBtn">つづきから（${L.dateOf(saved.turn).label}・${saved.factions[0] ? NAMES[saved.factions[0].capital] : ''}・${saved.over ? saved.goal + '圏域を制覇済み' : saved.mode === 'region' ? saved.goal + '圏域制覇' : '県内統一'}）</button></div>` : ''}
+    <div class="pick">${modeHtml()}<div><h4>首長になる市町村を選ぶ</h4><p class="sub" style="margin:0">タップすると特産や最初の人材などの詳細が見られます。月収支は最初の月（4月）の収入から維持費と給与を引いた額で、季節や内政で変わります。</p></div>${groups}
     <div><h4>ほかの市町村から選ぶ</h4><div class="selrow"><select id="startSel" aria-label="開始する市町村">${opts}</select><button class="btn" id="selStart">詳細を見る</button></div><p class="sub num" id="selPreview" style="margin:8px 0 0"></p></div></div>
     <ul class="howto">${HOWTO}</ul>
     <p class="sub" style="margin-top:14px">人口は統計を丸めた概数、そのほかの数値はゲーム用です。登場する陣営や出来事は架空です。地図：国土数値情報（行政区域データ）を加工</p>`, 'title-panel');
   if (lastPick) { const el = document.querySelector(`[data-start="${lastPick}"]`); if (el) el.scrollIntoView({ block: 'center' }); else if ($('startSel')) { $('startSel').value = lastPick; } }
   for (const b of document.querySelectorAll('[data-start]')) b.onclick = () => showStartDetail(b.dataset.start);
+  for (const b of document.querySelectorAll('[data-mode]')) b.onclick = () => {
+    prefs.mode = b.dataset.mode; savePrefs();
+    for (const x of document.querySelectorAll('[data-mode]')) x.setAttribute('aria-pressed', x === b ? 'true' : 'false');
+  };
   $('selStart').onclick = () => showStartDetail($('startSel').value);
   const showPrev = () => { const c = $('startSel').value, pv = startPreview(c); $('selPreview').textContent = `${NAMES[c]}：人口${L.INFO[c][1]}千人・開始時の財源 ${pv.money}億円・月収支 ${signed(pv.net)}億円（4月時点）`; };
   $('startSel').onchange = showPrev; showPrev();
-  if ($('contBtn')) $('contBtn').onclick = () => { S = saved; afterLoad(); };
+  if ($('contBtn')) $('contBtn').onclick = () => { S = saved; afterLoad(); if (S.over) showOver(); };
 }
 function startNew(code) {
-  S = L.newGame(MAP, code, (Date.now() & 0x7fffffff));
+  S = L.newGame(MAP, code, (Date.now() & 0x7fffffff), pickMode());
   afterLoad(); save();
   toast(`${NAMES[code]}の首長に就任しました`);
 }
 function afterLoad() {
   L.ensureStaff(S);
   sel = null; seenLog = S.log.length; closeOverlay(); render();
-  const b = bboxOf(Object.keys(NAMES));
-  vb = fitBox(b, 14); setVB(); lastBox = { x: b.x - 14, y: b.y - 14, w: b.w + 28, h: b.h + 28 };
-  for (const x of $('chips').children) x.setAttribute('aria-pressed', x.dataset.r === '全県' ? 'true' : 'false');
+  // 圏域制覇では目標の圏域に寄せて始める
+  const r = S.mode === 'region' ? S.goal : '全県', pad = r === '全県' ? 14 : 30;
+  const b = bboxOf(r === '全県' ? Object.keys(NAMES) : L.regionCodes(r));
+  vb = fitBox(b, pad); setVB(); lastBox = { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 };
+  for (const x of $('chips').children) x.setAttribute('aria-pressed', x.dataset.r === r ? 'true' : 'false');
 }
 
 $('endBtn').onclick = endMonth;

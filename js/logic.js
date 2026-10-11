@@ -79,10 +79,24 @@
     return '超むずかしい';
   }
 
-  function newGame(map, startCode, seed) {
+  // 遊び方：県内統一（42市町村）か、圏域制覇（スタート地点の圏域だけ）
+  const MODES = {
+    unify: { label: '県内統一', note: '県内42市町村をすべて自陣営にすると勝ち。1〜2時間' },
+    region: { label: '圏域制覇', note: 'スタート地点の圏域をすべて自陣営にすると勝ち。30分ほど' }
+  };
+  function regionCodes(r) { return Object.keys(INFO).filter(c => INFO[c][0] === r); }
+  // いまの目標：対象の市町村と、その名前
+  function goalOf(st) {
+    if (st.mode === 'region') { const codes = regionCodes(st.goal); return { codes, label: `${st.goal}圏域`, region: st.goal }; }
+    return { codes: Object.keys(st.m), label: '県内', region: null };
+  }
+
+  function newGame(map, startCode, seed, mode) {
     const names = {}; const adj = {};
     for (const m of map.muni) { names[m.code] = m.name; adj[m.code] = m.adj; }
     const st = { ver: 1, seed: seed | 0, turn: 0, player: 0, over: null, log: [], talksMax: 2 };
+    st.mode = mode === 'region' ? 'region' : 'unify';
+    if (st.mode === 'region') st.goal = INFO[startCode][0];
     // ライバルは、プレイヤーと隣り合わない主要都市から3つ
     const rivals = [];
     for (const c of RIVAL_CANDIDATES) {
@@ -120,7 +134,8 @@
     ensureStaff(st);
     st.ap = apMax(st, 0);
     st.aiAp = st.factions.map(f => apMax(st, f.id));
-    addLog(st, `${dateOf(0).label}、${names[startCode]}の首長に就任。目標は県内42市町村の統一。`, 'info');
+    const goal = st.mode === 'region' ? `${st.goal}圏域${regionCodes(st.goal).length}市町村の制覇` : '県内42市町村の統一';
+    addLog(st, `${dateOf(0).label}、${names[startCode]}の首長に就任。目標は${goal}。`, 'info');
     return st;
   }
 
@@ -617,6 +632,10 @@
     else if (me.negMonths >= 3) st.over = { win: false, text: '財源のマイナスが3か月続き、財政破綻となりました。' };
     else if (avgSat(st, 0) < 20) st.over = { win: false, text: '住民満足度が20を下回り、リコールが成立しました。' };
     else if (mine.length === Object.keys(st.m).length) st.over = { win: true, text: `${d.label}、岐阜県42市町村の統一を達成しました。` };
+    else if (st.mode === 'region' && goalOf(st).codes.every(c => st.m[c].owner === 0)) {
+      const n = goalOf(st).codes.length;
+      st.over = { win: true, region: st.goal, text: `${d.label}、${st.goal}圏域${n}市町村の制覇を達成しました（${st.turn}か月）。` };
+    }
     // 圏域制覇の知らせ
     st.regionsDone = st.regionsDone || [];
     for (const r of REGIONS) {
@@ -626,6 +645,13 @@
     }
     st.ap = apMax(st, 0);
     return res;
+  }
+
+  // 圏域を制覇したあと、そのまま県内統一を目指して続ける
+  function continueToUnify(st) {
+    if (!st.over || !st.over.win || st.mode !== 'region') return;
+    st.mode = 'unify'; st.over = null;
+    addLog(st, `${st.goal}圏域の制覇に続き、県内42市町村の統一を目指します`, 'info');
   }
 
   function events(st, names, month, res) {
@@ -676,7 +702,7 @@
     }
   }
 
-  const api = { INFO, REGIONS, CMDS, dateOf, difficultyOf, newGame, owned, apMax, totalPop, avgSat, incomeOf,
+  const api = { INFO, REGIONS, MODES, regionCodes, goalOf, continueToUnify, CMDS, dateOf, difficultyOf, newGame, owned, apMax, totalPop, avgSat, incomeOf,
     factionIncome, grantOf, tagInfo, upkeep, cmdCost, cmdEffect, SCALES, SCALABLE, gradeOf, GRADE_PAY, SCOUT, canScout, scout, ROLES, ABIL, ensureStaff, staffOf, staffMax, abil, roleVal, hireCandidates, hireCost, canHire, hire, assignRole, autoAssign, staffUpkeep, aiStaff, inTalk, BID_MAX, KEEP_MAX, KEEP_STEP, canDo, doCmd, endTurn, adjacentTo, talksOf, seasonX, clamp };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.GameLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);
