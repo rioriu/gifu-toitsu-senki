@@ -54,6 +54,8 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--ink); outl
   .status .unit { display: none; }
   .stat b { font-size: 14px; }
   .status .iconbtn { width: 34px; height: 34px; }
+  .bottombar { gap: 6px; padding: 8px 12px 10px; }
+  .bottombar button { font-size: 13px; }
 }
 .stat small { font-size: 10.5px; color: var(--ink-2); letter-spacing: .06em; }
 .stat b { font-size: 15px; }
@@ -124,11 +126,11 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--ink); outl
 
 /* 下のバー */
 .bottombar { display: grid; grid-template-columns: 1fr 1fr 1fr 1.5fr; gap: 8px; padding: 8px 16px 10px; background: var(--surface); border-top: 1px solid var(--line); }
-.bottombar button { min-height: 48px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface-2); cursor: pointer; font-size: 13.5px; position: relative; }
+.bottombar button { min-height: 48px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface-2); cursor: pointer; font-size: 13.5px; position: relative; padding: 0 4px; white-space: nowrap; }
 .bottombar .end { background: var(--me); border-color: var(--me); color: #fff; font-weight: 700; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.2; }
 .bottombar .end:disabled { opacity: .45; cursor: default; }
 .bottombar .end small { font-weight: 400; font-size: 11px; opacity: .9; }
-.badge { position: absolute; top: 6px; right: 8px; min-width: 18px; height: 18px; border-radius: 9px; background: var(--me); color: #fff; font-size: 11px; display: grid; place-items: center; padding: 0 5px; }
+.badge { position: absolute; top: -7px; right: -4px; box-shadow: 0 0 0 2px var(--surface); min-width: 18px; height: 18px; border-radius: 9px; background: var(--me); color: #fff; font-size: 11px; display: grid; place-items: center; padding: 0 5px; }
 
 /* 重ねる画面 */
 .overlay { position: fixed; inset: 0; background: rgb(10 16 20 / .55); display: flex; align-items: flex-end; justify-content: center; z-index: 10; padding-top: env(safe-area-inset-top, 0px); }
