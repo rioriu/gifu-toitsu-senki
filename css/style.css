@@ -39,12 +39,22 @@ button { font: inherit; color: inherit; }
 button:focus-visible, select:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .num { font-variant-numeric: tabular-nums; }
 
-#app { height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; max-width: 720px; margin: 0 auto; }
+#app { height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; grid-template-columns: minmax(0, 1fr); max-width: 720px; margin: 0 auto; }
 
 /* 戦況バー */
-.status { display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap; padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--line); }
-.status .date { font-family: var(--font-display); font-size: 17px; letter-spacing: .02em; margin-right: auto; }
-.stat { display: flex; flex-direction: column; line-height: 1.15; }
+.status { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--line); }
+.status .date { display: flex; flex-direction: column; line-height: 1.15; margin-right: auto; white-space: nowrap; flex: none; }
+.status .date small { font-size: 10.5px; color: var(--ink-2); letter-spacing: .06em; }
+.status .date b { font-family: var(--font-display); font-weight: 400; font-size: 17px; letter-spacing: .02em; }
+.stat { display: flex; flex-direction: column; line-height: 1.15; flex: none; white-space: nowrap; }
+.status .iconbtn { flex: none; }
+/* 幅の狭いスマホでは「円」を省き、すき間を詰めて1行に収める */
+@media (max-width: 374px) {
+  .status { gap: 8px; padding: 8px 12px; }
+  .status .unit { display: none; }
+  .stat b { font-size: 14px; }
+  .status .iconbtn { width: 34px; height: 34px; }
+}
 .stat small { font-size: 10.5px; color: var(--ink-2); letter-spacing: .06em; }
 .stat b { font-size: 15px; }
 .stat b.neg { color: var(--bad); }

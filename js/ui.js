@@ -170,9 +170,11 @@ function paintMap() {
 // ---------- 画面 ----------
 function renderStatus() {
   const d = L.dateOf(S.turn), me = S.factions[0];
-  $('date').textContent = d.label;
-  const mo = $('money'); mo.textContent = `${me.money}億円`; mo.className = 'num' + (me.money < 0 ? ' neg' : '');
-  const max = L.apMax(S, 0); $('pips').innerHTML = Array.from({ length: max }, (_, i) => `<i class="${i < S.ap ? 'on' : ''}"></i>`).join('');
+  $('date').innerHTML = `<small>令和${d.reiwa}年</small><b>${d.month}月</b>`;
+  $('date').setAttribute('aria-label', d.label);
+  const mo = $('money'); mo.innerHTML = `${me.money}億<span class="unit">円</span>`; mo.className = 'num' + (me.money < 0 ? ' neg' : '');
+  // 丸が多いとバーに収まらないので、6以上は数字で出す
+  const max = L.apMax(S, 0); $('pips').innerHTML = max > 5 ? `<b class="num">${S.ap}/${max}</b>` : Array.from({ length: max }, (_, i) => `<i class="${i < S.ap ? 'on' : ''}"></i>`).join('');
   $('pips').setAttribute('aria-label', `行動力 ${S.ap}/${max}`);
   const g = L.goalOf(S);
   $('countLbl').textContent = S.mode === 'region' ? g.region : '支配'; // 幅が足りないので圏域名だけ
