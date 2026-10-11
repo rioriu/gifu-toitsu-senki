@@ -242,5 +242,21 @@ select { font: inherit; padding: 10px; border-radius: 10px; border: 1px solid va
 .scouts button { text-align: left; border: 1px solid var(--line); background: var(--surface-2); border-radius: 12px; padding: 10px; cursor: pointer; display: flex; flex-direction: column; gap: 3px; }
 .scouts button small { font-size: 11.5px; color: var(--ink-2); }
 .scouts button[aria-disabled="true"] { opacity: .55; }
+/* 偉人アドバイザー：金の縁どりのカード */
+.advs { display: grid; gap: 8px; margin-top: 10px; }
+.adv { border: 1px solid var(--line); border-left: 4px solid var(--warn); border-radius: 12px; padding: 9px 12px; background: var(--surface-2); display: grid; gap: 3px; justify-items: start; }
+.adv .top { display: flex; align-items: baseline; gap: 4px 8px; flex-wrap: wrap; width: 100%; }
+.adv .nm { font-family: var(--font-display); font-weight: 400; font-size: 16px; letter-spacing: .02em; }
+.adv .top small { color: var(--ink-2); font-size: 11.5px; }
+.adv .left { margin-left: auto; font-size: 12px; color: var(--warn); font-weight: 700; }
+.adv .fx { font-size: 12.5px; color: var(--good); font-weight: 700; }
+.adv .say { font-size: 13px; }
+.adv .tip { font-size: 12.5px; color: var(--ink-2); }
+.adv .why { font-size: 12px; color: var(--ink-2); }
+.adv .btn { margin-top: 4px; padding: 9px 14px; }
+.adv.locked { border-left-color: var(--line); opacity: .7; }
+.advmore summary { cursor: pointer; font-size: 13px; color: var(--ink-2); padding: 12px 0; }
+.tag.adv-tag { border-color: var(--warn); color: var(--warn); }
+.linkbtn { border: 0; background: none; padding: 0 2px; color: var(--me); font-weight: 700; text-decoration: underline; cursor: pointer; font-size: inherit; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 @media (min-width: 560px) { .cmds { grid-template-columns: repeat(3, minmax(0, 1fr)); } }

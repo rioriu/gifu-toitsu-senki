@@ -209,8 +209,12 @@ function renderSheet() {
     const tips = L.owned(S, 0).length === 1 && S.turn < 3
       ? `<p class="empty">まずは<b>隣の市町村をタップ</b>して交流事業で関係度を上げましょう。関係度50で<b>連携協定</b>、70で<b>合併協議</b>に進めます。</p>`
       : `<p class="empty">地図の市町村をタップすると、数値と使えるコマンドが出ます。</p>`;
-    sheetFrame(`<div class="head"><h2>${NAMES[me.capital]}陣営</h2><span class="tag">${L.owned(S, 0).length}市町村</span>${goalTag()}</div>
-      <p class="facts num">人口 ${L.totalPop(S, 0).toFixed(1)}千人 · 平均満足度 ${Math.round(L.avgSat(S, 0))} · 収入 ${L.factionIncome(S, 0, L.dateOf(S.turn).month)}億円/月 · 維持費 ${L.upkeep(S, 0)}億円 · 魅力 ${Math.round(L.appeal(S, 0))} · 協議 同時${L.talksMax(S, 0)}件まで</p>`, tips);
+    const advs = L.advOf(S, 0);
+    const advTag = advs.length ? `<span class="tag adv-tag">助言 ${advs.map(a => L.ADV_BY_ID[a.id].name).join('・')}</span>` : '';
+    const advNote = advs.length ? `<div class="advs">${advs.map(a => advCard(a.id, a.left, true)).join('')}</div>` : advHint();
+    sheetFrame(`<div class="head"><h2>${NAMES[me.capital]}陣営</h2><span class="tag">${L.owned(S, 0).length}市町村</span>${goalTag()}${advTag}</div>
+      <p class="facts num">人口 ${L.totalPop(S, 0).toFixed(1)}千人 · 平均満足度 ${Math.round(L.avgSat(S, 0))} · 収入 ${L.factionIncome(S, 0, L.dateOf(S.turn).month)}億円/月 · 維持費 ${L.upkeep(S, 0)}億円 · 魅力 ${Math.round(L.appeal(S, 0))} · 協議 同時${L.talksMax(S, 0)}件まで</p>`, tips + advNote);
+    for (const b of sh.querySelectorAll('[data-open-staff]')) b.onclick = () => showStaff('adv');
     return;
   }
   const c = sel, x = S.m[c], info = L.INFO[c], month = L.dateOf(S.turn).month;
@@ -231,9 +235,13 @@ function renderSheet() {
   if (x.pact.length) notes += `<p class="note">連携協定：${x.pact.map(f => S.factions[f].name).join('、')}</p>`;
   const locals = (S.staff || []).filter(q => q.home === c && !q.ext);
   if (locals.length) notes += `<p class="note">ゆかりの人材：${locals.map(q => `${q.name}（${q.f < 0 ? '未登用' : (q.f === 0 ? 'あなたの陣営' : S.factions[q.f].name)}）`).join('、')}</p>`;
+  const yukari = L.ADVISORS.filter(a => a.home === c);
+  if (yukari.length) notes += `<p class="note">ゆかりの偉人：${yukari.map(a => `<b>${a.name}</b>（${L.advFx(a)}）`).join('、')}。${c === '21362' ? '毎年9月、この町を持つ陣営に助言に来ます' : mine ? '人材の画面から招けます' : '自陣営にすると招けます'}</p>`;
   if (!mine && L.adjacentTo(S, ADJ, c, 0)) {
     const dr = L.appealRel(S, 0, c), dv = Math.round(L.appealVote(S, 0, c));
     notes += `<p class="note">魅力：あなたの陣営 ${Math.round(L.appeal(S, 0))}／${NAMES[c]} ${Math.round(L.appealOf(S, c))}。${dr > 0 ? `関係度が毎月 +${dr.toFixed(1)}` : '魅力の差が10未満なので関係度の自然な伸びはなし'}・住民投票の賛成 ${dv >= 0 ? '+' : '−'}${Math.abs(dv)}</p>`;
+    const av = L.advVote(S, 0, c);
+    if (av) notes += `<p class="note" style="color:var(--good)">偉人の助言で、住民投票の賛成 +${av}</p>`;
   }
   if (!mine && !L.adjacentTo(S, ADJ, c, 0)) notes += `<p class="note">あなたの陣営と隣り合っていないため、外交はまだできません。</p>`;
   const t = x.talk;
@@ -244,7 +252,7 @@ function renderSheet() {
   const EFF = { ind: '産業力', tour: '観光力', care: '満足度', dis: '防災力', visit: '関係度' };
   const btns = cmds.map(k => {
     const sc = L.SCALABLE.includes(k) ? S.budget : undefined;
-    const def = L.CMDS[k], r = L.canDo(S, ADJ, 0, k, c, S.ap, sc), cost = L.cmdCost(S, k, c, sc);
+    const def = L.CMDS[k], r = L.canDo(S, ADJ, 0, k, c, S.ap, sc), cost = L.cmdCost(S, k, c, sc, 0);
     const e = L.cmdEffect(S, 0, k, sc);
     // 産業力・観光力は陣営の魅力にも効くので、上がり幅を添える
     const ga = (k === 'ind' || k === 'tour') ? Math.min(e, 100 - x[k]) / 2 * x.pop / (L.totalPop(S, 0) || 1) : 0;
@@ -470,9 +478,42 @@ function fillEmpty(p) {
   L.assignRole(S, 0, p.id, r);
   return `（${L.ROLES[r].label}に就任）`;
 }
+// ---------- 偉人アドバイザー ----------
+// left があれば助言中。withTip で、いまの状況に合わせたひとことを添える
+function advCard(id, left, withTip) {
+  const a = L.ADV_BY_ID[id];
+  const tip = withTip ? `<span class="tip">${L.advise(S, ADJ, NAMES, 0, id)}</span>` : '';
+  return `<div class="adv"><div class="top"><b class="nm">${a.name}</b><small>${a.title}・${NAMES[a.home]}ゆかり</small>${left ? `<span class="left num">あと${left}か月</span>` : ''}</div>
+    <span class="fx">${L.advFx(a)}</span><span class="say">「${a.say}」</span>${tip}</div>`;
+}
+// 助言がないとき、招ける偉人がいれば知らせる
+function advHint() {
+  const can = L.ADVISORS.filter(a => L.canInviteAdv(S, 0, a.id, S.ap).ok);
+  if (!can.length) return '';
+  return `<p class="note">${can.map(a => a.name).join('・')}を偉人アドバイザーに招けます。<button class="linkbtn" data-open-staff>人材の画面へ</button></p>`;
+}
+function advSection() {
+  const act = L.advOf(S, 0), max = L.advMax(S, 0);
+  const active = act.length ? act.map(a => advCard(a.id, a.left, true)).join('') : '<p class="empty">いま助言している偉人はいません。</p>';
+  const rest = L.ADVISORS.filter(a => !act.some(x => x.id === a.id)).map(a => ({ a, r: L.canInviteAdv(S, 0, a.id, S.ap) }));
+  rest.sort((p, q) => q.r.ok - p.r.ok || (S.m[q.a.home].owner === 0) - (S.m[p.a.home].owner === 0) || !!p.a.seki - !!q.a.seki);
+  const card = ({ a, r }) => {
+    const why = r.ok ? '' : (r.reason === 'ゆかりの地を自陣営にすると招けます' ? `${NAMES[a.home]}を自陣営にすると招けます` : r.reason);
+    return `<div class="adv${r.ok || S.m[a.home].owner === 0 ? '' : ' locked'}"><div class="top"><b class="nm">${a.name}</b><small>${a.title}・${NAMES[a.home]}ゆかり</small></div>
+      <span class="fx">${L.advFx(a)}</span>
+      ${r.ok ? `<button class="btn main hirebtn" data-adv="${a.id}">招く（${a.cost}億円・行動1）</button>` : `<span class="why">${why}</span>`}</div>`;
+  };
+  // ゆかりの地を持っている偉人は表に、まだの偉人はたたんでおく
+  const near = rest.filter(x => x.r.ok || S.m[x.a.home].owner === 0), far = rest.filter(x => !near.includes(x));
+  const list = near.map(card).join('') + (far.length ? `<details class="advmore"><summary>ほかの偉人（${far.length}人）</summary><div class="advs">${far.map(card).join('')}</div></details>` : '');
+  return `<div class="h4" id="advHead">偉人アドバイザー（${L.advUsed(S, 0)}/${max}人）</div>
+    <p class="sub" style="margin-top:-2px">岐阜ゆかりの歴史人物が${L.ADV_MONTHS}か月だけ助言し、効果をくれます。ゆかりの地を自陣営に持つと招け、失うと去ります。去ったあと${L.ADV_COOL}か月は招けません。市町村が${L.ADV_SLOT2}つ以上で2人まで。毎年9月には関ケ原町を持つ陣営に関ケ原ゆかりの偉人が訪れます（人数に数えません）。</p>
+    <div class="advs">${active}</div>
+    <div class="advs" style="margin-top:8px">${list}</div>`;
+}
 function gradeTag(p) { const g = L.gradeOf(p); return `<span class="grade ${g}" title="ランク${g}">${g}</span>`; }
-function showStaff() {
-  L.ensureStaff(S);
+function showStaff(focus) {
+  L.ensureStaff(S); L.ensureAdv(S);
   const mine = L.staffOf(S, 0), max = L.staffMax(S, 0);
   const roles = Object.entries(L.ROLES).map(([r, def]) => {
     const p = mine.find(q => q.role === r), v = L.roleVal(S, 0, r);
@@ -491,6 +532,7 @@ function showStaff() {
     <p class="sub">${mine.length}/${max}人。役職に就けると効果が出ます。役職の給与はランクで変わります（月 C1・B2・A3・S5億円）。${S.m['21207'].owner === 0 ? '美濃和紙の美濃市があるので、企画が+8されています。' : ''}</p>
     <div class="roles">${roles}</div>
     <div class="row" style="margin-top:10px"><button class="btn" id="autoBtn">得意な役職におまかせで配置</button></div>
+    ${advSection()}
     <div class="h4">あなたの陣営の人材</div><div class="people">${people}</div>
     <div class="h4">登用できる人材</div><div class="people">${hires}</div>
     <div class="h4">県外から招へい（行動1）</div>
@@ -498,6 +540,14 @@ function showStaff() {
     <div class="scouts">${['B', 'A', 'S'].map(g => { const r = L.canScout(S, 0, g, S.ap); const d = L.SCOUT[g];
       return `<button data-scout="${g}" aria-disabled="${!r.ok}"><span class="grade ${g}">${g}</span><b class="num">${d.cost}億円</b><small>得意 ${d.best[0]}〜${d.best[1]}</small><small>${r.ok ? `給与 月${L.GRADE_PAY[g]}億円` : r.reason}</small></button>`; }).join('')}</div>`);
   $('xBtn').onclick = closeOverlay;
+  if (focus === 'adv') $('advHead').scrollIntoView({ block: 'start' });
+  for (const b of document.querySelectorAll('[data-adv]')) b.onclick = () => {
+    const id = b.dataset.adv, r = L.canInviteAdv(S, 0, id, S.ap);
+    if (!r.ok) { toast(r.reason); return; }
+    const text = L.inviteAdv(S, 0, id); S.ap -= 1;
+    S.log.push({ t: S.turn, text, kind: 'good' }); seenLog = S.log.length;
+    toast(text); save(); render(); showStaff('adv');
+  };
   $('autoBtn').onclick = () => { L.autoAssign(S, 0); save(); render(); showStaff(); toast('得意な役職に配置しました'); };
   for (const sl of document.querySelectorAll('[data-role]')) sl.onchange = () => { L.assignRole(S, 0, Number(sl.dataset.role), sl.value); save(); render(); showStaff(); };
   for (const b of document.querySelectorAll('[data-scout]')) b.onclick = () => {
@@ -522,7 +572,7 @@ function showFactions() {
     <div class="nm">${f.name}${f.alive ? '' : '（消滅）'}</div>
     <div class="facts"><span>本拠 <b>${NAMES[f.capital]}</b></span><span>市町村 <b class="num">${L.owned(S, f.id).length}</b></span>
     <span>人口 <b class="num">${L.totalPop(S, f.id).toFixed(0)}千人</b></span><span>財源 <b class="num">${f.money}億円</b></span>
-    <span>平均満足度 <b class="num">${Math.round(L.avgSat(S, f.id)) || 0}</b></span><span>魅力 <b class="num">${Math.round(L.appeal(S, f.id)) || 0}</b></span><span>月収入 <b class="num">${L.factionIncome(S, f.id, month)}億円</b></span></div></div>`).join('');
+    <span>平均満足度 <b class="num">${Math.round(L.avgSat(S, f.id)) || 0}</b></span><span>魅力 <b class="num">${Math.round(L.appeal(S, f.id)) || 0}</b></span><span>月収入 <b class="num">${L.factionIncome(S, f.id, month)}億円</b></span>${L.advOf(S, f.id).length ? `<span>助言 <b>${L.advOf(S, f.id).map(a => L.ADV_BY_ID[a.id].name).join('・')}</b></span>` : ''}</div></div>`).join('');
   const talks = Object.keys(S.m).filter(c => S.m[c].talk && S.m[c].talk.f === 0).map(c => `${NAMES[c]}（あと${S.m[c].talk.left}か月）`);
   const regions = L.REGIONS.map(r => { const cs = L.regionCodes(r), t = `${r} ${cs.filter(c => S.m[c].owner === 0).length}/${cs.length}`; return S.mode === 'region' && S.goal === r ? `<b>${t}（目標）</b>` : t; }).join('　');
   openOverlay(`<button class="iconbtn close" id="xBtn" aria-label="閉じる">✕</button><h3>陣営</h3>
@@ -566,6 +616,7 @@ const HOWTO = `<li><b>交流事業</b>で隣の市町村との関係度を上げ
   <li>産業力と観光力は何もしないと少しずつ下がる。<b>産業振興</b>と<b>観光PR</b>で保つ</li>
   <li>内政と交流事業は<b>予算規模</b>を選べる。大きいほど効果が大きいが割高</li>
   <li>人材にはC〜Sのランクがあり、<b>県外から招へい</b>で高ランクを迎えられる</li>
+  <li><b>偉人アドバイザー</b>：斎藤道三・織田信長・竹中半兵衛など岐阜ゆかりの歴史人物を、ゆかりの地を持つと人材の画面から招ける。${L.ADV_MONTHS}か月だけ効果をくれる。毎年9月は関ケ原町を持つ陣営に関ケ原の偉人が訪れる</li>
   <li>相手の本拠地は、その陣営の市町村が3つ以下になると切り崩せる</li>
   <li>自分の市町村が合併協議をかけられたら、<b>引き留め</b>で住民投票の賛成を下げられる（最大3段）</li>
   <li>財源のマイナスが3か月続くか、満足度が20を下回ると負け</li>`;
@@ -631,6 +682,7 @@ function showStartDetail(c) {
     <div class="h4">数値</div>
     <div class="meters">${meterP('産業力', x.ind)}${meterP('観光力', x.tour)}${meterP('満足度', x.sat)}${meterP('防災力', x.dis)}</div>
     <div class="h4">最初からいる人材</div><div class="people">${staff}</div>
+    ${L.ADVISORS.some(a => a.home === c) ? `<div class="h4">ゆかりの偉人アドバイザー</div><div class="advs">${L.ADVISORS.filter(a => a.home === c).map(a => `<div class="adv"><div class="top"><b class="nm">${a.name}</b><small>${a.title}${a.seki ? '・毎年9月に訪れる' : `・${a.cost}億円で招ける`}</small></div><span class="fx">${L.advFx(a)}</span></div>`).join('')}</div>` : ''}
     <div class="h4">隣の市町村（${ADJ[c].length}）</div><p class="note" style="margin:0">${nb}</p>
     <div class="h4">ライバル</div><p style="margin:0;display:flex;gap:6px;flex-wrap:wrap">${rivals}</p>
     ${pickMode() === 'region' ? goalHtml(st, c) : ''}
@@ -651,7 +703,7 @@ function showTitle() {
     <div class="pick">${modeHtml()}<div><h4>首長になる市町村を選ぶ</h4><p class="sub" style="margin:0">タップすると特産や最初の人材などの詳細が見られます。月収支は最初の月（4月）の収入から維持費と給与を引いた額で、季節や内政で変わります。</p></div>${groups}
     <div><h4>ほかの市町村から選ぶ</h4><div class="selrow"><select id="startSel" aria-label="開始する市町村">${opts}</select><button class="btn" id="selStart">詳細を見る</button></div><p class="sub num" id="selPreview" style="margin:8px 0 0"></p></div></div>
     <ul class="howto">${HOWTO}</ul>
-    <p class="sub" style="margin-top:14px">人口は統計を丸めた概数、そのほかの数値はゲーム用です。登場する陣営や出来事は架空です。地図：国土数値情報（行政区域データ）を加工</p>`, 'title-panel');
+    <p class="sub" style="margin-top:14px">人口は統計を丸めた概数、そのほかの数値はゲーム用です。登場する陣営・人材・出来事は架空です（偉人アドバイザーは岐阜ゆかりの歴史人物）。地図：国土数値情報（行政区域データ）を加工</p>`, 'title-panel');
   if (lastPick) { const el = document.querySelector(`[data-start="${lastPick}"]`); if (el) el.scrollIntoView({ block: 'center' }); else if ($('startSel')) { $('startSel').value = lastPick; } }
   for (const b of document.querySelectorAll('[data-start]')) b.onclick = () => showStartDetail(b.dataset.start);
   for (const b of document.querySelectorAll('[data-mode]')) b.onclick = () => {
@@ -669,7 +721,7 @@ function startNew(code) {
   toast(`${NAMES[code]}の首長に就任しました`);
 }
 function afterLoad() {
-  L.ensureStaff(S);
+  L.ensureStaff(S); L.ensureAdv(S);
   sel = null; seenLog = S.log.length; closeOverlay(); render();
   // 圏域制覇では目標の圏域に寄せて始める
   const r = S.mode === 'region' ? S.goal : '全県', pad = r === '全県' ? 14 : 30;

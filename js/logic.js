@@ -49,6 +49,7 @@
     if (tag === '合掌造り') parts.unshift('観光力がとても高い');
     if (tag === '郡上おどり') parts.push('8月に満足度+5');
     if (tag === '美濃和紙') parts.push('この市を持つ陣営の人材は企画+8');
+    if (tag === '古戦場') parts.push('毎年9月、この町を持つ陣営に関ケ原ゆかりの偉人が助言に来る');
     return parts.join('。');
   }
   const RIVAL_CANDIDATES = ['21201', '21202', '21204', '21203', '21214', '21205', '21206'];
@@ -142,6 +143,7 @@
       return r;
     });
     ensureStaff(st);
+    ensureAdv(st);
     st.ap = apMax(st, 0);
     st.aiAp = st.factions.map(f => apMax(st, f.id));
     const goal = st.mode === 'region' ? `${st.goal}圏域${regionCodes(st.goal).length}市町村の制覇` : '県内42市町村の統一';
@@ -152,7 +154,7 @@
   function addLog(st, text, kind) { st.log.push({ t: st.turn, text, kind: kind || 'info' }); if (st.log.length > 300) st.log.shift(); }
 
   function owned(st, f) { return Object.keys(st.m).filter(c => st.m[c].owner === f); }
-  function apMax(st, f) { return 3 + Math.floor((owned(st, f).length - 1) / 4); }
+  function apMax(st, f) { return 3 + Math.floor((owned(st, f).length - 1) / 4) + advBonus(st, f, 'ap'); }
   function totalPop(st, f) { return owned(st, f).reduce((s, c) => s + st.m[c].pop, 0); }
   function avgSat(st, f) {
     const cs = owned(st, f); const p = totalPop(st, f) || 1;
@@ -326,6 +328,11 @@
       const g = fac.money > 700 ? 'S' : fac.money > 350 ? 'A' : fac.money > 160 ? 'B' : null;
       if (g && canScout(st, f, g, apRef.ap).ok) { apRef.ap--; const p = scout(st, f, g); out.push({ text: `${fac.name}が${p.pref}から${g}ランクの${p.name}を招へい`, code: fac.capital, cmd: 'hire', f }); }
     }
+    // ゆかりの地があり、財源に余裕があれば偉人を招く
+    if (apRef.ap > 0 && rnd(st) < 0.25) {
+      const a = ADVISORS.find(a => fac.money > (a.cost || 0) * 3 && canInviteAdv(st, f, a.id, apRef.ap).ok);
+      if (a) { apRef.ap--; out.push({ text: `${fac.name}が${inviteAdv(st, f, a.id)}`, code: a.home, cmd: 'adv', f }); }
+    }
     autoAssign(st, f);
     return out;
   }
@@ -351,6 +358,130 @@
     return joined;
   }
 
+  // ---------- 偉人アドバイザー ----------
+  // 岐阜ゆかりの歴史人物。ゆかりの地を自陣営に持つと招けて、期間限定で助言し効果をくれる
+  const ADV_MONTHS = 6, ADV_COOL = 12, ADV_SEKI = '21362', ADV_SLOT2 = 8;
+  const ADV_FX = {
+    tax: v => `税収 +${v}％`,
+    tourInc: v => `観光収入 +${v}％`,
+    cash: v => `毎月 財源 +${v}億円`,
+    cost: v => `コマンドの費用 −${v}％`,
+    ap: v => `行動力 +${v}`,
+    plan: v => `内政コマンドの効果 +${v}`,
+    ind: v => `産業振興の効果 +${v}`,
+    tour: v => `観光PRの効果 +${v}`,
+    care: v => `子育て支援の効果 +${v}`,
+    visit: v => `交流事業の効果 +${v}`,
+    vote: v => `住民投票の賛成 +${v}`,
+    steal: v => `ほかの陣営の市町村での住民投票の賛成 +${v}`,
+    sat: v => `自陣営の満足度が毎月 +${v}`,
+    rel: v => `隣り合う市町村との関係度が毎月 +${v}`
+  };
+  // seki: 関ケ原の偉人。招くことはできず、毎年9月に関ケ原町を持つ陣営に訪れる
+  const ADVISORS = [
+    { id: 'dosan', name: '斎藤道三', home: '21201', title: '美濃の蝮', fx: 'steal', v: 10, cost: 30, say: '国は待っていても手に入らぬ。隙を見せた町から切り取れ' },
+    { id: 'nobunaga', name: '織田信長', home: '21201', title: '楽市楽座', fx: 'tax', v: 15, cost: 35, say: '古い決まりはいらぬ。市を開けば銭はおのずと集まる' },
+    { id: 'hanbei', name: '竹中半兵衛', home: '21361', title: '今孔明', fx: 'vote', v: 8, cost: 20, say: '戦わずに勝つには、先に住民の心を得ることです' },
+    { id: 'mitsuhide', name: '明智光秀', home: '21214', title: '文武の才', fx: 'plan', v: 3, cost: 25, say: '政も戦も、段取りが八割にございます' },
+    { id: 'nagachika', name: '金森長近', home: '21203', title: '高山の町割り', fx: 'tourInc', v: 25, cost: 25, say: '町並みを整えれば、人は遠くからでも訪ねてくる' },
+    { id: 'basho', name: '松尾芭蕉', home: '21202', title: 'むすびの地', fx: 'tour', v: 5, cost: 20, say: '旅人の心に残る景色を、ひとつ磨きなされ' },
+    { id: 'oribe', name: '古田織部', home: '21218', title: '織部好み', fx: 'ind', v: 4, cost: 20, say: 'ゆがみもまた味わい。ものづくりに遊び心を' },
+    { id: 'toson', name: '島崎藤村', home: '21206', title: '夜明け前', fx: 'care', v: 5, cost: 20, say: '子らが学べる町にこそ、夜明けは来る' },
+    { id: 'enku', name: '円空', home: '21209', title: '旅の仏師', fx: 'sat', v: 1, cost: 20, say: '一刀ごとに、人の心を彫るのです' },
+    { id: 'chiune', name: '杉原千畝', home: '21505', title: '命のビザ', fx: 'visit', v: 8, cost: 15, say: '扉は閉ざすより、開くほうが道は広がります' },
+    { id: 'chiyo', name: '千代', home: '21219', title: '内助の功', fx: 'cost', v: 20, cost: 15, say: '蓄えは、いざというときのために。むだを省きましょう' },
+    { id: 'ieyasu', name: '徳川家康', home: ADV_SEKI, title: '天下分け目', fx: 'ap', v: 1, seki: true, say: '勝負は一日で決まる。動ける手を増やしておけ' },
+    { id: 'mitsunari', name: '石田三成', home: ADV_SEKI, title: '五奉行の才', fx: 'cash', v: 5, seki: true, say: '帳簿を整えれば、財はおのずと増えまする' },
+    { id: 'yoshitsugu', name: '大谷吉継', home: ADV_SEKI, title: '友との義', fx: 'rel', v: 2, seki: true, say: '信義を重ねれば、隣人はおのずと味方になる' }
+  ];
+  const ADV_BY_ID = {}; for (const a of ADVISORS) ADV_BY_ID[a.id] = a;
+  function ensureAdv(st) { if (!st.adv) st.adv = st.factions.map(() => []); if (!st.advCool) st.advCool = {}; }
+  function advOf(st, f) { return (st.adv && st.adv[f]) || []; }
+  function advFx(a) { return ADV_FX[a.fx](a.v); }
+  function advBonus(st, f, fx) { return advOf(st, f).reduce((s, a) => s + (ADV_BY_ID[a.id].fx === fx ? ADV_BY_ID[a.id].v : 0), 0); }
+  // 招ける人数：1人、市町村が8つ以上で2人（関ケ原の偉人は数えない）
+  function advMax(st, f) { return 1 + (owned(st, f).length >= ADV_SLOT2 ? 1 : 0); }
+  function advUsed(st, f) { return advOf(st, f).filter(a => !ADV_BY_ID[a.id].seki).length; }
+  function advHolder(st, id) { return st.adv ? st.adv.findIndex(l => l.some(a => a.id === id)) : -1; }
+  function canInviteAdv(st, f, id, apLeft) {
+    const a = ADV_BY_ID[id];
+    if (!a) return { ok: false, reason: '' };
+    const h = advHolder(st, id);
+    if (h >= 0) return { ok: false, reason: h === f ? '助言中です' : `${st.factions[h].name}に助言中です` };
+    if (a.seki) return { ok: false, reason: '毎年9月、関ケ原町を持つ陣営に訪れます' };
+    if (st.advCool && st.advCool[id] > 0) return { ok: false, reason: `あと${st.advCool[id]}か月は招けません` };
+    if (st.m[a.home].owner !== f) return { ok: false, reason: 'ゆかりの地を自陣営にすると招けます' };
+    if (advUsed(st, f) >= advMax(st, f)) return { ok: false, reason: `同時に${advMax(st, f)}人までです${advMax(st, f) < 2 ? `（市町村が${ADV_SLOT2}つで2人）` : ''}` };
+    if (apLeft < 1) return { ok: false, reason: '今月の行動力が足りません（1必要）' };
+    if (st.factions[f].money < a.cost) return { ok: false, reason: `財源が足りません（${a.cost}億円必要）` };
+    return { ok: true, cost: a.cost };
+  }
+  function inviteAdv(st, f, id) {
+    const a = ADV_BY_ID[id];
+    ensureAdv(st);
+    st.factions[f].money -= a.cost;
+    st.adv[f].push({ id, left: ADV_MONTHS });
+    return `${a.name}を偉人アドバイザーに招く（${advFx(a)}・${ADV_MONTHS}か月）`;
+  }
+  // 月末：期間が過ぎるか、ゆかりの地を失うと去る。毎年9月は関ケ原の偉人が訪れる
+  function tickAdvisors(st, names, d, res) {
+    ensureAdv(st);
+    for (const k in st.advCool) if (st.advCool[k] > 0) st.advCool[k]--;
+    for (const fac of st.factions) {
+      const list = st.adv[fac.id];
+      for (const a of list.slice()) {
+        const def = ADV_BY_ID[a.id], lost = st.m[def.home].owner !== fac.id;
+        a.left--;
+        if (a.left > 0 && !lost && fac.alive) continue;
+        list.splice(list.indexOf(a), 1); st.advCool[a.id] = ADV_COOL;
+        const text = `${lost ? `ゆかりの${names[def.home]}を失い、` : ''}${def.name}の助言が終わりました`;
+        addLog(st, fac.id === 0 ? text : `${fac.name}：${text}`, fac.id === 0 ? 'bad' : 'rival');
+        if (fac.id === 0) res.news.push(`${def.name}が去る`);
+      }
+    }
+    if (d.month !== 9) return;
+    const o = st.m[ADV_SEKI].owner;
+    if (o < 0) { addLog(st, '関ケ原の戦いの月。関ケ原町を持つ陣営には、毎年ゆかりの偉人が助言に訪れます', 'season'); return; }
+    const seki = ADVISORS.filter(a => a.seki), y = d.year - 2026;
+    const pick = [0, 1, 2].map(i => seki[(y + i) % seki.length]).find(a => advHolder(st, a.id) < 0 && !(st.advCool[a.id] > 0));
+    if (!pick) return;
+    st.adv[o].push({ id: pick.id, left: ADV_MONTHS });
+    const who = o === 0 ? 'あなたの陣営' : st.factions[o].name;
+    addLog(st, `関ケ原の戦いの月。${pick.name}が${who}の偉人アドバイザーに加わりました（${advFx(pick)}・${ADV_MONTHS}か月）`, o === 0 ? 'good' : 'rival');
+    res.steps.push({ kind: 'event', code: ADV_SEKI, text: `関ケ原の戦いの月。${pick.name}が${who}に助言`, tone: o === 0 ? 'good' : 'bad' });
+    if (o === 0) res.news.push(`${pick.name}が助言に`);
+  }
+  // 偉人からのひとこと：効果に合わせて、いま手を打つとよい市町村を挙げる
+  function advise(st, adj, names, f, id) {
+    const a = ADV_BY_ID[id], mine = owned(st, f);
+    const near = Object.keys(st.m).filter(c => st.m[c].owner !== f && adjacentTo(st, adj, c, f));
+    const low = key => mine.slice().sort((p, q) => st.m[p][key] - st.m[q][key])[0];
+    const r = c => Math.round(st.rel[f][c]);
+    switch (a.fx) {
+      case 'vote': {
+        const c = near.filter(c => st.m[c].owner === -1 && !st.m[c].talk).sort((p, q) => st.rel[f][q] - st.rel[f][p])[0];
+        if (!c) return '合併協議を進めて、住民投票で賛成を集めましょう';
+        return r(c) >= 70 && st.m[c].pact.includes(f) ? `${names[c]}は関係度${r(c)}。合併協議を申し入れる好機です` : `${names[c]}は関係度${r(c)}。協定と交流で、協議に進める70を目指しましょう`;
+      }
+      case 'steal': {
+        const c = near.filter(c => st.m[c].owner >= 0).sort((p, q) => st.m[p].sat - st.m[q].sat)[0];
+        return c ? `${names[c]}（${st.factions[st.m[c].owner].name}）は満足度${Math.round(st.m[c].sat)}。切り崩しを狙えます` : 'ほかの陣営と隣り合ったら、満足度の低い町を狙いましょう';
+      }
+      case 'visit': case 'rel': {
+        const gap = c => (r(c) < 50 ? 50 : 70) - r(c);
+        const c = near.filter(c => st.m[c].owner === -1 && r(c) < 70).sort((p, q) => gap(p) - gap(q))[0];
+        if (!c) return '隣り合う市町村と交流を重ねましょう';
+        const goal = r(c) < 50 ? 50 : 70;
+        return `${names[c]}はあと${goal - r(c)}で${goal === 50 ? '連携協定' : '合併協議'}に届きます`;
+      }
+      case 'plan': case 'ind': { const c = low('ind'); return `${names[c]}の産業力は${Math.round(st.m[c].ind)}。産業振興で底上げを`; }
+      case 'tour': case 'tourInc': { const c = low('tour'); return `${names[c]}の観光力は${Math.round(st.m[c].tour)}。観光PRで磨きましょう`; }
+      case 'care': case 'sat': { const c = low('sat'); return `${names[c]}の満足度は${Math.round(st.m[c].sat)}。住民の声に耳を傾けましょう`; }
+    }
+    const month = dateOf(st.turn).month, net = factionIncome(st, f, month) - upkeep(st, f);
+    return `月の収支は${net >= 0 ? '+' : '−'}${Math.abs(net)}億円。${net < 0 ? '支出を見直しましょう' : '余裕のあるうちに内政と外交へ'}`;
+  }
+
   function upkeep(st, f) { return Math.round(owned(st, f).reduce((s, c) => s + 0.8 + st.m[c].pop * 0.012, 0) + staffUpkeep(st, f)); }
   function seasonX(code, month) {
     const s = SEASON[INFO[code][2]];
@@ -371,10 +502,10 @@
       if (x.owner === f) { base += x.pop * 0.05 * (0.6 + x.ind / 100); tour += x.tour * 0.05 * seasonX(c, month); }
       else if (x.owner === -1 && x.pact.includes(f)) pact += incomeOf(st, c, month) * 0.15;
     }
-    base *= 1 + roleVal(st, f, 'deputy') / 500;
+    base *= (1 + roleVal(st, f, 'deputy') / 500) * (1 + advBonus(st, f, 'tax') / 100);
     base += grantOf(st, f);
-    tour *= 1 + roleVal(st, f, 'tourism') / 250;
-    return Math.round(base + tour + pact);
+    tour *= (1 + roleVal(st, f, 'tourism') / 250) * (1 + advBonus(st, f, 'tourInc') / 100);
+    return Math.round(base + tour + pact + advBonus(st, f, 'cash'));
   }
 
   const CMDS = {
@@ -401,11 +532,13 @@
   const SCALABLE = ['ind', 'tour', 'care', 'dis', 'visit'];
   function scaleOf(cmd, scale) { return SCALABLE.includes(cmd) ? SCALES[scale === undefined ? 1 : scale] : SCALES[1]; }
   function cmdEffect(st, f, cmd, scale) {
-    const pb = Math.floor(roleVal(st, f, 'planning') / 25), nb = Math.floor(roleVal(st, f, 'nego') / 15);
-    const base = { ind: 6 + pb, tour: 7 + pb, care: 8 + pb, dis: 8 + pb, visit: 15 + nb }[cmd];
+    const pb = Math.floor(roleVal(st, f, 'planning') / 25) + advBonus(st, f, 'plan'), nb = Math.floor(roleVal(st, f, 'nego') / 15);
+    const B = fx => advBonus(st, f, fx);
+    const base = { ind: 6 + pb + B('ind'), tour: 7 + pb + B('tour'), care: 8 + pb + B('care'), dis: 8 + pb, visit: 15 + nb + B('visit') }[cmd];
     return base === undefined ? 0 : Math.round(base * scaleOf(cmd, scale).eff);
   }
-  function cmdCost(st, cmd, code, scale) { return Math.round(cmdCostBase(st, cmd, code) * scaleOf(cmd, scale).cost); }
+  // f を渡すと、偉人アドバイザーの値引きが入る
+  function cmdCost(st, cmd, code, scale, f) { return Math.round(cmdCostBase(st, cmd, code) * scaleOf(cmd, scale).cost * (1 - (f === undefined ? 0 : advBonus(st, f, 'cost')) / 100)); }
   function cmdCostBase(st, cmd, code) {
     const p = st.m[code].pop;
     switch (cmd) {
@@ -438,7 +571,7 @@
   function canDoBase(st, adj, f, cmd, code, scale) {
     const x = st.m[code]; const def = CMDS[cmd];
     if (st.over) return { ok: false, reason: 'ゲームは終了しています' };
-    const cost = cmdCost(st, cmd, code, scale);
+    const cost = cmdCost(st, cmd, code, scale, f);
     if (cmd === 'keep') {
       if (x.owner !== f) return { ok: false, reason: '自陣営の市町村だけで使えます' };
       if (!x.talk || inTalk(x.talk, f)) return { ok: false, reason: 'ほかの陣営から合併協議をかけられていません' };
@@ -496,11 +629,10 @@
 
   function doCmd(st, names, f, cmd, code, scale) {
     const x = st.m[code]; const fac = st.factions[f];
-    const cost = cmdCost(st, cmd, code, scale);
+    const cost = cmdCost(st, cmd, code, scale, f);
     fac.money -= cost;
     const e = cmdEffect(st, f, cmd, scale), sl = SCALABLE.includes(cmd) && scale !== undefined && scale !== 1 ? `・${SCALES[scale].label}` : '';
     const n = names[code]; const who = f === 0 ? '' : fac.name + 'が';
-    const pb = Math.floor(roleVal(st, f, 'planning') / 25), nb = Math.floor(roleVal(st, f, 'nego') / 15);
     switch (cmd) {
       case 'ind': x.ind = clamp(x.ind + e, 0, 100); return `${who}${n}で産業振興（産業力 ${Math.round(x.ind)}${sl}）`;
       case 'tour': x.tour = clamp(x.tour + e, 0, 100); return `${who}${n}の観光PR（観光力 ${Math.round(x.tour)}${sl}）`;
@@ -565,7 +697,7 @@
         // 自分の市町村が狙われていれば引き留め
         for (const c of owned(st, f)) {
           const t = st.m[c].talk;
-          if (t && !inTalk(t, f) && (t.keep || 0) < KEEP_MAX && fac.money > cmdCost(st, 'keep', c) * 2 && rnd(st) < KEEP_AI && tryDo('keep', c)) { done = true; break; }
+          if (t && !inTalk(t, f) && (t.keep || 0) < KEEP_MAX && fac.money > cmdCost(st, 'keep', c, undefined, f) * 2 && rnd(st) < KEEP_AI && tryDo('keep', c)) { done = true; break; }
         }
         if (done) continue;
         // 競り合いで負けていれば上乗せ
@@ -573,7 +705,7 @@
           const t = st.m[c].talk;
           if (t && t.rival !== undefined && inTalk(t, f)) {
             const other = t.f === f ? t.rival : t.f;
-            if (t.bids[f] <= t.bids[other] && fac.money > cmdCost(st, 'raise', c) * 2 && rnd(st) < 0.75 && tryDo('raise', c)) { done = true; break; }
+            if (t.bids[f] <= t.bids[other] && fac.money > cmdCost(st, 'raise', c, undefined, f) * 2 && rnd(st) < 0.75 && tryDo('raise', c)) { done = true; break; }
           }
         }
         if (!done) for (const c of near) { const t = st.m[c].talk; if (t && t.rival === undefined && t.f !== f && rnd(st) < 0.5 && tryDo('counter', c)) { done = true; break; } }
@@ -598,11 +730,13 @@
   }
 
   function offerScore(st, f, code, bid) {
-    return st.rel[f][code] + (avgSat(st, f) - st.m[code].sat) * 0.5 + appealVote(st, f, code) + bid * 8 + rnd(st) * 6;
+    return st.rel[f][code] + (avgSat(st, f) - st.m[code].sat) * 0.5 + appealVote(st, f, code) + advVote(st, f, code) + bid * 8 + rnd(st) * 6;
   }
+  // 偉人アドバイザーによる住民投票の賛成の上乗せ
+  function advVote(st, f, code) { const o = st.m[code].owner; return advBonus(st, f, 'vote') + (o >= 0 && o !== f ? advBonus(st, f, 'steal') : 0); }
   function voteFor(st, f, code, bonus) {
     const x = st.m[code]; const rel = st.rel[f][code];
-    let yes = 50 + (avgSat(st, f) - x.sat) * 0.4 + (rel - 70) * 0.6 + (rnd(st) * 20 - 10) + (bonus || 0) + roleVal(st, f, 'nego') / 12 + appealVote(st, f, code);
+    let yes = 50 + (avgSat(st, f) - x.sat) * 0.4 + (rel - 70) * 0.6 + (rnd(st) * 20 - 10) + (bonus || 0) + roleVal(st, f, 'nego') / 12 + appealVote(st, f, code) + advVote(st, f, code);
     if (x.pop > totalPop(st, f) * 0.7) yes -= 15;
     if (x.owner !== -1) yes -= 8;
     yes = clamp(yes, 4, 96);
@@ -618,6 +752,7 @@
     const res = { votes: [], news: [], steps: [] };
     if (st.over) return res;
     ensureStaff(st);
+    ensureAdv(st);
     // ライバルの行動
     for (const fac of st.factions) {
       if (!fac.ai || !fac.alive) continue;
@@ -694,6 +829,7 @@
       const target = x.owner === -1 ? 54 : 50;
       x.sat += (target - x.sat) * 0.04;
       if (x.owner >= 0 && st.factions[x.owner].money < 0) x.sat -= 3;
+      if (x.owner >= 0) x.sat += advBonus(st, x.owner, 'sat');
       x.sat = clamp(x.sat, 0, 100);
       // 人口はゆるやかに減る。満足度と産業力が高いと減り方が小さく、十分高ければ増える
       x.pop = Math.max(0.3, x.pop * (1 + (x.sat - 60 + (x.ind - 50) * 0.2) * 0.00004));
@@ -703,11 +839,13 @@
       for (const k in x.cool) if (x.cool[k] > 0) x.cool[k]--;
       for (let f = 0; f < st.factions.length; f++) {
         if (x.owner === f) continue;
-        if (st.factions[f].alive && adjacentTo(st, adj, c, f)) st.rel[f][c] = clamp(st.rel[f][c] + appealRel(st, f, c), 0, 100);
+        if (st.factions[f].alive && adjacentTo(st, adj, c, f)) st.rel[f][c] = clamp(st.rel[f][c] + appealRel(st, f, c) + advBonus(st, f, 'rel'), 0, 100);
         if (x.pact.includes(f)) st.rel[f][c] = clamp(st.rel[f][c] + 3, 0, 100);
         else if (st.rel[f][c] > 35) st.rel[f][c] -= 0.5;
       }
     }
+    // 偉人アドバイザーの入れ替わり
+    tickAdvisors(st, names, d, res);
     // 勝敗
     const me = st.factions[0];
     const mine = owned(st, 0);
@@ -785,7 +923,7 @@
     }
   }
 
-  const api = { regionLength, talksMax, APPEAL_TALKS, appeal, appealOf, appealRel, appealVote, INFO, REGIONS, MODES, regionCodes, goalOf, continueToUnify, CMDS, dateOf, difficultyOf, newGame, owned, apMax, totalPop, avgSat, incomeOf,
+  const api = { ADVISORS, ADV_BY_ID, ADV_MONTHS, ADV_COOL, ADV_SLOT2, ensureAdv, advOf, advFx, advBonus, advMax, advUsed, advHolder, canInviteAdv, inviteAdv, advise, advVote, regionLength, talksMax, APPEAL_TALKS, appeal, appealOf, appealRel, appealVote, INFO, REGIONS, MODES, regionCodes, goalOf, continueToUnify, CMDS, dateOf, difficultyOf, newGame, owned, apMax, totalPop, avgSat, incomeOf,
     factionIncome, grantOf, tagInfo, upkeep, cmdCost, cmdEffect, SCALES, SCALABLE, gradeOf, GRADE_PAY, SCOUT, canScout, scout, ROLES, ABIL, ensureStaff, staffOf, staffMax, abil, roleVal, hireCandidates, hireCost, canHire, hire, assignRole, autoAssign, staffUpkeep, aiStaff, inTalk, BID_MAX, KEEP_MAX, KEEP_STEP, canDo, doCmd, endTurn, adjacentTo, talksOf, seasonX, clamp };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.GameLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);
