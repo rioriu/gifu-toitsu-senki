@@ -17,6 +17,7 @@
 | `js/map-data.js` | 地図データ（`MAP`：市町村の形・隣接・面積） |
 | `js/ui.js` | 画面の処理・描画・セーブ |
 | `docs/spec-v0.1.md` | ゲーム仕様書 v0.1 |
+| `tools/balance.js` | バランス確認。人に近い考え方のボットに何度も遊ばせ、スタート地点ごとの勝率を測る（`node tools/balance.js 100 21507`） |
 
 JS は `logic.js` → `map-data.js` → `ui.js` の順に通常の `<script>` で読み込む（`file://` で開けるよう ES Modules や `fetch` は使わない）。
 
