@@ -53,6 +53,10 @@
     return parts.join('。');
   }
   const RIVAL_CANDIDATES = ['21201', '21202', '21204', '21203', '21214', '21205', '21206'];
+  // 主要都市だけでは離して置けないときに使う、次に大きな市
+  const RIVAL_EXTRA = ['21213', '21209', '21212', '21211', '21210', '21219', '21220', '21208', '21217'];
+  // ライバルの本拠地は、プレイヤーからこの数だけ離す（3 なら、あいだに市町村を2つ挟む）。置けないときだけ2まで縮める
+  const RIVAL_GAP = 3;
   const FACTION_COLORS = ['me', 'r1', 'r2', 'r3'];
 
   function hash(s) { let h = 2166136261; for (const ch of s) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
@@ -105,21 +109,28 @@
     const st = { ver: 1, seed: seed | 0, turn: 0, player: 0, over: null, log: [], talksMax: 2 };
     st.mode = mode === 'region' ? 'region' : 'unify';
     if (st.mode === 'region') st.goal = INFO[startCode][0];
-    // ライバルは、プレイヤーと隣り合わない主要都市から3つ
+    // ライバルは主要都市から3つ。プレイヤーから RIVAL_GAP 以上離し、ライバル同士も隣り合わせない
+    const hop = { [startCode]: 0 }, queue = [startCode];
+    while (queue.length) { const c = queue.shift(); for (const n of adj[c]) if (hop[n] === undefined) { hop[n] = hop[c] + 1; queue.push(n); } }
     const rivals = [];
-    const near = c => c === startCode || adj[startCode].includes(c) || rivals.some(r => adj[r].includes(c));
-    let cands = RIVAL_CANDIDATES;
+    const free = (c, gap) => hop[c] >= gap && !rivals.includes(c) && !rivals.some(r => adj[r].includes(c));
+    let cands = RIVAL_CANDIDATES, extra = RIVAL_EXTRA;
     if (st.mode === 'region') {
-      // 圏域制覇では、目標の圏域の中には置かず、圏域の外で接するいちばん大きな市町村に1陣営を置いて境目で取り合う
+      // 圏域制覇では、目標の圏域の中には置かず、圏域の外で接するいちばん大きな市町村に1陣営を置いて境目で取り合う。
+      // 離して置けないときは、あいだに1つ挟む市町村のうち、人口がこちらの2倍までのいちばん大きなところ（なければいちばん小さなところ）
       const goal = regionCodes(st.goal);
-      const border = [...new Set(goal.flatMap(c => adj[c]))].filter(c => !goal.includes(c) && !near(c)).sort((a, b) => INFO[b][1] - INFO[a][1]);
-      if (border.length) rivals.push(border[0]);
-      cands = RIVAL_CANDIDATES.filter(c => INFO[c][0] !== st.goal);
+      const border = [...new Set(goal.flatMap(c => adj[c]))].filter(c => !goal.includes(c)).sort((a, b) => INFO[b][1] - INFO[a][1]);
+      const close = border.filter(c => free(c, 2));
+      const b = border.find(c => free(c, RIVAL_GAP)) || close.find(c => INFO[c][1] <= INFO[startCode][1] * 2) || close[close.length - 1];
+      if (b) rivals.push(b);
+      cands = cands.filter(c => INFO[c][0] !== st.goal);
+      extra = extra.filter(c => INFO[c][0] !== st.goal);
     }
-    for (const c of cands) {
-      if (rivals.length >= 3) break;
-      if (rivals.includes(c) || near(c)) continue;
-      rivals.push(c);
+    for (const [gap, list] of [[RIVAL_GAP, cands], [RIVAL_GAP, extra], [2, cands]]) {
+      for (const c of list) {
+        if (rivals.length >= 3) break;
+        if (free(c, gap)) rivals.push(c);
+      }
     }
     const caps = [startCode, ...rivals];
     st.factions = caps.map((c, i) => ({
