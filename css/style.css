@@ -18,6 +18,8 @@
   --bad: #b5352f;
   /* 住民投票の決戦：反対派・中立の地区・道・市町村の外 */
   --b-opp: #3d5566; --b-neutral: #b9c4cb; --b-road: #f2f4ef; --b-out: #c9d3d9;
+  /* 圏域ボタンで一瞬光らせる範囲 */
+  --flash: #fff4bf; --flash-edge: #e0a020;
   --font-display: 'Dela Gothic One', 'Hiragino Sans', 'Yu Gothic', 'Meiryo', sans-serif;
   --font-body: 'BIZ UDPGothic', 'Hiragino Sans', 'Yu Gothic UI', 'Meiryo', sans-serif;
 }
@@ -27,6 +29,7 @@
     --land: #2a3731; --land-hi: #36463a; --me: #ec6a4b; --r1: #5d90d8; --r2: #8bbb55; --r3: #b682c9;
     --good: #5cbf85; --warn: #e0a645; --bad: #ef6b63; color-scheme: dark;
     --b-opp: #7d97aa; --b-neutral: #4b5a64; --b-road: #34423a; --b-out: #0c1216;
+    --flash: #b9a352; --flash-edge: #ffd65c;
   }
 }
 :root[data-theme="dark"] {
@@ -34,6 +37,7 @@
   --land: #2a3731; --land-hi: #36463a; --me: #ec6a4b; --r1: #5d90d8; --r2: #8bbb55; --r3: #b682c9;
   --good: #5cbf85; --warn: #e0a645; --bad: #ef6b63; color-scheme: dark;
     --b-opp: #7d97aa; --b-neutral: #4b5a64; --b-road: #34423a; --b-out: #0c1216;
+    --flash: #b9a352; --flash-edge: #ffd65c;
 }
 *, *::before, *::after { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -81,23 +85,32 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--ink); outl
 #map .talk2 { animation-delay: -.6s; }
 #map .talk { fill: none; stroke-width: 3; vector-effect: non-scaling-stroke; stroke-dasharray: 6 5; pointer-events: none; animation: march 1.2s linear infinite; }
 @keyframes march { to { stroke-dashoffset: -22; } }
-.chips { position: absolute; left: 12px; right: 12px; top: 10px; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
-.chips button { flex: none; border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 5px 12px; font-size: 12.5px; cursor: pointer; }
+#map .flash { pointer-events: none; opacity: 0; animation: flash 1.8s ease-out both; }
+#map .flash .fl-edge { fill: var(--flash-edge); stroke: var(--flash-edge); stroke-width: 8; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+#map .flash .fl-fill { fill: var(--flash); stroke: none; }
+@keyframes flash { 0% { opacity: 0; } 15% { opacity: .8; } 38% { opacity: .3; } 60% { opacity: .8; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { #map .flash { opacity: .55; } }
+.chips { position: absolute; left: 12px; right: 12px; top: 8px; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+.chips button { flex: none; border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 4px 11px; font-size: 12.5px; cursor: pointer; }
 .chips button[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
-.legend { position: absolute; left: 12px; top: 50px; display: flex; gap: 10px; flex-wrap: wrap; font-size: 11.5px; color: var(--ink-2); background: color-mix(in srgb, var(--surface) 88%, transparent); padding: 4px 10px; border-radius: 8px; max-width: calc(100% - 24px); }
-.legend span { display: inline-flex; align-items: center; gap: 4px; }
+.legend { position: absolute; left: 12px; top: 44px; display: flex; gap: 8px; flex-wrap: wrap; font-size: 10.5px; color: var(--ink-2); background: color-mix(in srgb, var(--surface) 80%, transparent); padding: 2px 8px; border-radius: 6px; max-width: calc(100% - 24px); pointer-events: none; }
+.legend span { display: inline-flex; align-items: center; gap: 3px; }
+.legend .dot { width: 8px; height: 8px; }
 .dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: none; }
 .toast { position: absolute; left: 50%; top: 84px; transform: translateX(-50%); background: var(--ink); color: var(--surface); padding: 9px 14px; border-radius: 10px; font-size: 13px; max-width: calc(100% - 32px); width: max-content; box-shadow: 0 6px 20px rgb(0 0 0 / .18); transition: opacity .25s, transform .25s; }
 .toast[hidden] { display: block !important; opacity: 0; transform: translate(-50%, -8px); pointer-events: none; }
 
 /* 台帳（選んだ市町村） */
 .sheet { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; background: var(--surface); border-top: 1px solid var(--line); border-radius: 16px 16px 0 0; box-shadow: 0 -6px 20px rgb(0 0 0 / .1); display: flex; flex-direction: column; max-height: 58%; }
-.sheet .handle { flex: none; height: 22px; border: 0; background: none; cursor: pointer; display: grid; place-items: center; padding: 0; }
-.sheet .handle i { width: 40px; height: 4px; border-radius: 2px; background: var(--line); display: block; }
-.sheet .body { overflow-y: auto; padding: 0 16px 12px; min-height: 0; }
+.sheet .body { overflow-y: auto; padding: 10px 16px 10px; min-height: 0; }
 .sheet[data-open="false"] .full { display: none; }
-.sheet[data-open="false"] .peek { cursor: pointer; }
-.sheet h2 { font-family: var(--font-display); font-weight: 400; font-size: 19px; margin: 0; letter-spacing: .02em; }
+.sheet .full { border-top: 1px dashed var(--line); margin-top: 10px; padding-top: 2px; }
+.sheet .head { min-width: 0; }
+.sheet .head .tag { flex: none; }
+.morebtn { margin-left: auto; flex: none; border: 1px solid var(--line); background: var(--surface-2); border-radius: 999px; padding: 4px 12px; font-size: 12px; cursor: pointer; min-height: 30px; }
+.morebtn[aria-expanded="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.sheet .facts { margin-top: 2px; }
+.sheet h2 { font-family: var(--font-display); font-weight: 400; font-size: 18px; margin: 0; letter-spacing: .02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .facts { margin: 4px 0 0; font-size: 12.5px; color: var(--ink-2); }
 .facts .alert { color: var(--bad); font-weight: 700; }
 .meters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 16px; margin: 10px 0 2px; }
@@ -116,11 +129,11 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--ink); outl
 .bar.low i { background: var(--bad); }
 .note { font-size: 12.5px; color: var(--ink-2); margin: 8px 0 0; }
 .note.talking { color: var(--ink); font-weight: 700; }
-.cmds { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 10px; }
-.cmd { text-align: left; border: 1px solid var(--line); background: var(--surface-2); border-radius: 10px; padding: 7px 10px; cursor: pointer; display: flex; flex-direction: column; gap: 1px; min-height: 48px; }
+.cmds { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
+.cmd { text-align: left; border: 1px solid var(--line); background: var(--surface-2); border-radius: 10px; padding: 5px 10px; cursor: pointer; display: flex; flex-direction: column; gap: 0; min-height: 44px; min-width: 0; }
 .cmd .ttl { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
 .cmd strong { font-size: 13.5px; }
-.cmd small { font-size: 11.5px; color: var(--ink-2); }
+.cmd small { font-size: 11px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cmd .cost { font-size: 11.5px; color: var(--ink-2); }
 .cmd[aria-disabled="true"] { opacity: .55; }
 .cmd.primary { border-color: var(--me); }
@@ -248,7 +261,12 @@ select { font: inherit; padding: 10px; border-radius: 10px; border: 1px solid va
 .seg button small { display: block; font-size: 10.5px; color: var(--ink-2); }
 .seg button[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
 .seg button[aria-pressed="true"] small { color: var(--surface); opacity: .8; }
-.seglabel { font-size: 11.5px; color: var(--ink-2); margin: 10px 0 0; display: flex; justify-content: space-between; gap: 8px; }
+/* 台帳の予算規模：ラベルと切り替えを1行に */
+.budget { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.budget .lbl { flex: none; font-size: 11.5px; color: var(--ink-2); display: flex; flex-direction: column; line-height: 1.25; }
+.budget .lbl small { font-size: 10.5px; }
+.budget .seg { flex: 1; margin-top: 0; }
+.budget .seg button { padding: 5px 2px; font-size: 12px; }
 .grade { display: inline-grid; place-items: center; min-width: 24px; height: 22px; padding: 0 6px; border-radius: 6px; font-size: 12px; font-weight: 700; border: 1.5px solid var(--line); color: var(--ink-2); }
 .grade.B { border-color: var(--r1); color: var(--r1); }
 .grade.A { border-color: var(--r3); color: var(--r3); }
