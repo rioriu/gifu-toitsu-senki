@@ -533,6 +533,86 @@
     return `月の収支は${net >= 0 ? '+' : '−'}${Math.abs(net)}億円。${net < 0 ? '支出を見直しましょう' : '余裕のあるうちに内政と外交へ'}`;
   }
 
+  // ---------- 誘致合戦 ----------
+  // 大型の企業進出の話が圏域に来ると、圏域とその隣に市町村を持つ陣営同士が補助金を出し合って奪い合う。
+  // 補助金は上乗せのたびに払い、負けたら戻る。決まった候補地に企業が立地し、その市町村を持つ陣営に毎月の税収が入る
+  const LURE_MONTHS = 3, LURE_PT = 6, LURE_MAX = 6, LURE_P = 0.2, LURE_REST = 3, LURE_NOISE = 4, LURE_IN = 5, LURE_LIKE = 10;
+  // inc：毎月の税収（億円）、ind：産業力、pop：人口の伸び、step：補助金1段の額、likes：好む特産
+  const FIRMS = [
+    { name: '半導体工場', inc: 4, ind: 14, pop: 0.03, step: 15 },
+    { name: 'EV電池工場', inc: 3, ind: 12, pop: 0.025, step: 12 },
+    { name: 'データセンター', inc: 3, ind: 10, pop: 0.005, step: 10 },
+    { name: '物流センター', inc: 2, ind: 8, pop: 0.015, step: 8 },
+    { name: '食品工場', inc: 2, ind: 8, pop: 0.02, step: 8 },
+    { name: '航空機部品工場', inc: 3, ind: 12, pop: 0.02, step: 12, likes: '航空宇宙' },
+    { name: '精密刃物工場', inc: 2, ind: 10, pop: 0.015, step: 8, likes: '刃物' },
+    { name: 'ファインセラミックス工場', inc: 3, ind: 12, pop: 0.02, step: 10, likes: '美濃焼' }
+  ];
+  function firmInc(x) { return (x.firms || []).reduce((s, k) => s + k.inc, 0); }
+  // 候補地になれるのは、圏域の市町村と、圏域に隣り合う市町村
+  function lureArea(adj, r) { const cs = regionCodes(r); return new Set([...cs, ...cs.flatMap(c => adj[c])]); }
+  function lureTowns(st, adj, f, r) { const a = lureArea(adj, r); return owned(st, f).filter(c => a.has(c)); }
+  // 立地点：企業から見た候補地の良さ。産業力・防災力・人口と、圏域の中か、好む特産か
+  function sitePoint(st, c, lure) {
+    const x = st.m[c];
+    return Math.round(x.ind * 0.4 + x.dis * 0.1 + Math.min(15, Math.sqrt(x.pop) * 1.5) + (INFO[c][0] === lure.region ? LURE_IN : 0) + (lure.likes && INFO[c][2] === lure.likes ? LURE_LIKE : 0));
+  }
+  // 陣営の候補地：最初に決めた市町村。失ったら残りでいちばん立地点の高い市町村
+  function lureSite(st, adj, f) {
+    const L = st.lure;
+    if (!L || !st.factions[f].alive) return null;
+    const towns = lureTowns(st, adj, f, L.region), b = L.bids[f];
+    if (b && towns.includes(b.site)) return b.site;
+    return towns.sort((p, q) => sitePoint(st, q, L) - sitePoint(st, p, L))[0] || null;
+  }
+  function lureBid(st, f) { const b = st.lure && st.lure.bids[f]; return b ? b.n : 0; }
+  function lureScore(st, adj, f) { const c = lureSite(st, adj, f); return c ? sitePoint(st, c, st.lure) + lureBid(st, f) * LURE_PT : -1; }
+  function lureParts(st, adj) { return st.lure ? Object.keys(st.lure.bids).map(Number).filter(f => lureSite(st, adj, f)) : []; }
+  function lureRows(st, adj) {
+    return lureParts(st, adj).map(f => { const site = lureSite(st, adj, f), b = st.lure.bids[f], pt = sitePoint(st, site, st.lure); return { f, site, n: b.n, paid: b.paid, pt, total: pt + b.n * LURE_PT }; }).sort((a, b) => b.total - a.total);
+  }
+  // 月初：候補地を持つ陣営が2つ以上ある圏域に、ときどき進出の話が来る
+  function startLure(st, adj, names, res) {
+    const regs = REGIONS.map(r => ({ r, fs: st.factions.filter(fa => fa.alive && lureTowns(st, adj, fa.id, r).length).map(fa => fa.id) })).filter(o => o.fs.length >= 2);
+    if (!regs.length) return;
+    // あなたの陣営が候補地を持つ圏域と、圏域制覇の目標の圏域に来やすい
+    const w = o => (o.fs.includes(0) ? 3 : 1) * (st.mode === 'region' && o.r === st.goal ? 2 : 1);
+    let k = rnd(st) * regs.reduce((s, o) => s + w(o), 0);
+    const pick = regs.find(o => (k -= w(o)) < 0) || regs[regs.length - 1];
+    const area = lureArea(adj, pick.r);
+    const firms = FIRMS.filter(fm => !fm.likes || [...area].some(c => INFO[c][2] === fm.likes));
+    const fm = firms[Math.floor(rnd(st) * firms.length)];
+    st.lure = { ...fm, region: pick.r, left: LURE_MONTHS, bids: {} };
+    for (const f of pick.fs) st.lure.bids[f] = { site: lureSite(st, adj, f), n: 0, paid: 0 };
+    const rows = lureRows(st, adj), mine = pick.fs.includes(0);
+    const who = rows.map(r => `${r.f === 0 ? 'あなたの陣営' : st.factions[r.f].name}（${names[r.site]}）`).join('・');
+    addLog(st, `${pick.r}圏域に${fm.name}の進出話。${who}による誘致合戦が始まりました（${LURE_MONTHS}か月後に決定）`, mine ? 'good' : 'info');
+    const step = { kind: 'lure', phase: 'start', code: mine ? st.lure.bids[0].site : rows[0].site, name: fm.name, region: pick.r, inc: fm.inc, ind: fm.ind, pop: fm.pop, stepAmt: fm.step, rows, mine };
+    res.steps.push(step);
+    if (mine) { res.lures.push(step); res.news.push(`${fm.name}の誘致合戦`); }
+  }
+  // 月末：期限が来たら、立地点＋補助金のいちばん高い候補地に決まる（差が小さいと運で入れ替わる）
+  function tickLure(st, adj, names, res) {
+    const L = st.lure;
+    if (!L) return;
+    L.left--;
+    if (L.left > 0) return;
+    const rows = lureRows(st, adj).map(r => ({ ...r, score: r.total + (rnd(st) * 2 - 1) * LURE_NOISE })).sort((a, b) => b.score - a.score);
+    // 候補地を失った陣営と、負けた陣営の補助金は戻る
+    for (const k of Object.keys(L.bids)) { const f = Number(k); if (!rows.length || rows[0].f !== f) st.factions[f].money += L.bids[f].paid; }
+    st.lure = null; st.lureNext = st.turn + 1 + LURE_REST;
+    const mine = Object.keys(L.bids).map(Number).includes(0);
+    if (!rows.length) { addLog(st, `${L.region}圏域への${L.name}の進出は見送られました`, 'info'); return; }
+    const win = rows[0], x = st.m[win.site];
+    x.firms = [...(x.firms || []), { name: L.name, inc: L.inc }];
+    x.ind = clamp(x.ind + L.ind, 0, 100); x.pop += x.pop * L.pop + 0.3; x.sat = clamp(x.sat + 3, 0, 100);
+    const nm = k => k === 0 ? 'あなたの陣営' : st.factions[k].name;
+    addLog(st, `誘致合戦：${L.name}は${nm(win.f)}の${names[win.site]}に立地が決定（補助金${win.n}段・${win.paid}億円）。税収が毎月+${L.inc}億円`, win.f === 0 ? 'good' : (mine ? 'bad' : 'rival'));
+    const step = { kind: 'lure', phase: 'result', code: win.site, f: win.f, name: L.name, region: L.region, inc: L.inc, ind: L.ind, pop: L.pop, rows: rows.map(({ score, ...r }) => r), mine };
+    res.steps.push(step);
+    if (mine) { res.lures.push(step); res.news.push(win.f === 0 ? `${L.name}を誘致` : `${L.name}の誘致に敗れる`); }
+  }
+
   function upkeep(st, f) { return Math.round(owned(st, f).reduce((s, c) => s + 0.8 + st.m[c].pop * 0.012, 0) + staffUpkeep(st, f)); }
   function seasonX(code, month) {
     const s = SEASON[INFO[code][2]];
@@ -542,21 +622,21 @@
     const x = st.m[code];
     const base = x.pop * 0.05 * (0.6 + x.ind / 100);
     const tour = x.tour * 0.05 * seasonX(code, month);
-    return base + tour;
+    return base + tour + firmInc(x);
   }
   // 地方交付税：人口の少ない市町村ほど多く交付される
   function grantOf(st, f) { return owned(st, f).reduce((s, c) => s + Math.max(0.3, 2.4 - st.m[c].pop * 0.02), 0); }
   function factionIncome(st, f, month) {
-    let base = 0, tour = 0, pact = 0;
+    let base = 0, tour = 0, pact = 0, firm = 0;
     for (const c in st.m) {
       const x = st.m[c];
-      if (x.owner === f) { base += x.pop * 0.05 * (0.6 + x.ind / 100); tour += x.tour * 0.05 * seasonX(c, month); }
+      if (x.owner === f) { base += x.pop * 0.05 * (0.6 + x.ind / 100); tour += x.tour * 0.05 * seasonX(c, month); firm += firmInc(x); }
       else if (x.owner === -1 && x.pact.includes(f)) pact += incomeOf(st, c, month) * 0.15;
     }
     base *= (1 + roleVal(st, f, 'deputy') / 500) * (1 + advBonus(st, f, 'tax') / 100);
     base += grantOf(st, f);
     tour *= (1 + roleVal(st, f, 'tourism') / 250) * (1 + advBonus(st, f, 'tourInc') / 100);
-    return Math.round(base + tour + pact + advBonus(st, f, 'cash'));
+    return Math.round(base + tour + pact + firm + advBonus(st, f, 'cash'));
   }
 
   const CMDS = {
@@ -570,7 +650,8 @@
     talk: { label: '合併協議', ap: 2, own: false, note: '3か月後に住民投票' },
     counter: { label: '対抗提案', ap: 2, own: false, note: 'ほかの陣営の協議に割り込み、条件を競う' },
     raise: { label: '条件を上乗せ', ap: 1, own: false, note: '競り合いで選ばれやすくなる' },
-    keep: { label: '引き留め', ap: 1, own: false, note: '住民投票の賛成 −5・満足度 +3' }
+    keep: { label: '引き留め', ap: 1, own: false, note: '住民投票の賛成 −5・満足度 +3' },
+    lure: { label: '補助金を上乗せ', ap: 1, own: false, note: '誘致合戦で選ばれやすくなる。負けたら戻る' }
   };
 
   // 予算規模：お金を多く使うほど効果が大きい（ただし割高）
@@ -602,6 +683,7 @@
       case 'talk': case 'counter': return Math.round(6 + p * 0.1);
       case 'raise': return Math.round(4 + p * 0.06);
       case 'keep': return Math.round(3 + p * 0.04);
+      case 'lure': return st.lure ? st.lure.step : 0;
     }
     return 0;
   }
@@ -623,6 +705,15 @@
     const x = st.m[code]; const def = CMDS[cmd];
     if (st.over) return { ok: false, reason: 'ゲームは終了しています' };
     const cost = cmdCost(st, cmd, code, scale, f);
+    if (cmd === 'lure') {
+      const L = st.lure;
+      if (!L) return { ok: false, reason: '誘致合戦は起きていません' };
+      const site = lureSite(st, adj, f);
+      if (!site) return { ok: false, reason: `${L.region}圏域とその隣に自陣営の市町村がありません` };
+      if (site !== code) return { ok: false, reason: `候補地は${x.owner === f ? 'ほかの市町村' : '自陣営の市町村'}です` };
+      if (lureBid(st, f) >= LURE_MAX) return { ok: false, reason: `補助金は${LURE_MAX}段までです` };
+      return { ok: true, cost };
+    }
     if (cmd === 'keep') {
       if (x.owner !== f) return { ok: false, reason: '自陣営の市町村だけで使えます' };
       if (!x.talk || inTalk(x.talk, f)) return { ok: false, reason: 'ほかの陣営から合併協議をかけられていません' };
@@ -708,6 +799,11 @@
         const t = x.talk; t.bids[f]++;
         return `${who}${n}への条件を上乗せ（${t.bids[f]}段目）`;
       }
+      case 'lure': {
+        const L = st.lure, b = L.bids[f] || (L.bids[f] = { site: code, n: 0, paid: 0 });
+        b.site = code; b.n++; b.paid += cost;
+        return `${who}${n}への${L.name}の誘致に補助金を上乗せ（${b.n}段・計${b.paid}億円）`;
+      }
     }
     return '';
   }
@@ -725,13 +821,23 @@
       if (!r.ok) return false;
       ap -= CMDS[cmd].ap;
       const t0 = st.m[code].talk;
-      const vsMe = ['counter', 'raise', 'keep'].includes(cmd) && !!t0 && (t0.f === 0 || t0.rival === 0);
+      const vsMe = (['counter', 'raise', 'keep'].includes(cmd) && !!t0 && (t0.f === 0 || t0.rival === 0)) || (cmd === 'lure' && !!st.lure.bids[0]);
       out.push({ text: doCmd(st, names, f, cmd, code, sc), code, cmd, f, vsMe });
       return true;
     };
     const apRef = { ap };
     for (const t of aiStaff(st, adj, names, f, apRef)) out.push(t);
     ap = apRef.ap;
+    // 誘致合戦：負けていて、見合う額のうちは補助金を上乗せする（決まる月は動かない）
+    const lu = st.lure, site = lureSite(st, adj, f);
+    if (lu && lu.left >= 2 && site) {
+      const cap = Math.min(LURE_MAX, Math.floor(lu.inc * 14 / lu.step));
+      for (let i = 0; i < 3 && ap > 0; i++) {
+        const best = Math.max(-1, ...lureParts(st, adj).filter(k => k !== f).map(k => lureScore(st, adj, k)));
+        if (lureScore(st, adj, f) > best + LURE_PT / 2 || lureBid(st, f) >= cap) break;
+        if (fac.money - cmdCost(st, 'lure', site, undefined, f) < 25 || rnd(st) < 0.15 || !tryDo('lure', site)) break;
+      }
+    }
     let guard = 12;
     while (ap > 0 && guard-- > 0) {
       if (rnd(st) < 0.25) { ap--; continue; } // ときどき様子見
@@ -800,7 +906,7 @@
 
   // 月を終える
   function endTurn(st, adj, names) {
-    const res = { votes: [], news: [], steps: [] };
+    const res = { votes: [], news: [], steps: [], lures: [] };
     if (st.over) return res;
     ensureStaff(st);
     ensureAdv(st);
@@ -863,11 +969,14 @@
       if (f === 0 || prev === 0 || (contest && contest.loser === 0)) res.votes.push({ code: c, f, prev, ...v });
       res.steps.push({ kind: 'vote', code: c, f, prev, ...v });
     }
+    // 誘致合戦の決着
+    tickLure(st, adj, names, res);
     // 月を進める
     st.turn++;
     const d = dateOf(st.turn);
     // 季節・ランダムのイベント
     events(st, names, d.month, res);
+    if (!st.lure && st.turn >= (st.lureNext || 3) && rnd(st) < LURE_P) startLure(st, adj, names, res);
     // 収入と住民の変化
     for (const fac of st.factions) {
       if (!fac.alive) continue;
@@ -975,7 +1084,7 @@
     }
   }
 
-  const api = { ADVISORS, ADV_BY_ID, ADV_MONTHS, ADV_COOL, ADV_SLOT2, ensureAdv, advCond, advMeasure, advOf, advFx, advBonus, advMax, advUsed, advHolder, canInviteAdv, inviteAdv, advise, advVote, regionLength, talksMax, APPEAL_TALKS, appeal, appealOf, appealRel, appealVote, INFO, REGIONS, MODES, regionCodes, goalOf, continueToUnify, CMDS, dateOf, difficultyOf, newGame, owned, apMax, totalPop, avgSat, incomeOf,
+  const api = { FIRMS, LURE_MONTHS, LURE_PT, LURE_MAX, firmInc, sitePoint, lureSite, lureBid, lureScore, lureParts, lureRows, ADVISORS, ADV_BY_ID, ADV_MONTHS, ADV_COOL, ADV_SLOT2, ensureAdv, advCond, advMeasure, advOf, advFx, advBonus, advMax, advUsed, advHolder, canInviteAdv, inviteAdv, advise, advVote, regionLength, talksMax, APPEAL_TALKS, appeal, appealOf, appealRel, appealVote, INFO, REGIONS, MODES, regionCodes, goalOf, continueToUnify, CMDS, dateOf, difficultyOf, newGame, owned, apMax, totalPop, avgSat, incomeOf,
     factionIncome, grantOf, tagInfo, upkeep, cmdCost, cmdEffect, SCALES, SCALABLE, gradeOf, GRADE_PAY, SCOUT, canScout, scout, ROLES, ABIL, ensureStaff, staffOf, staffMax, abil, roleVal, hireCandidates, hireCost, canHire, hire, assignRole, autoAssign, staffUpkeep, aiStaff, inTalk, BID_MAX, KEEP_MAX, KEEP_STEP, canDo, doCmd, endTurn, adjacentTo, talksOf, seasonX, clamp };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.GameLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -156,6 +156,10 @@ function paintMap() {
       q.style.stroke = colorVar(t.rival); tg.appendChild(q);
     }
   }
+  if (S.lure) for (const r of L.lureRows(S, ADJ)) {
+    const p = document.createElementNS(NS, 'path'); p.setAttribute('d', BYCODE[r.site].d); p.setAttribute('class', 'lure');
+    p.style.stroke = colorVar(r.f); tg.appendChild(p);
+  }
   $('selPath').setAttribute('d', sel ? BYCODE[sel].d : '');
   const lg = $('legend'); lg.textContent = '';
   for (const f of S.factions) {
@@ -212,9 +216,11 @@ function renderSheet() {
     const advs = L.advOf(S, 0);
     const advTag = advs.length ? `<span class="tag adv-tag">助言 ${advs.map(a => L.ADV_BY_ID[a.id].name).join('・')}</span>` : '';
     const advNote = advs.length ? `<div class="advs">${advs.map(a => advCard(a.id, a.left, true)).join('')}</div>` : advHint();
-    sheetFrame(`<div class="head"><h2>${NAMES[me.capital]}陣営</h2><span class="tag">${L.owned(S, 0).length}市町村</span>${goalTag()}${advTag}</div>
-      <p class="facts num">人口 ${L.totalPop(S, 0).toFixed(1)}千人 · 平均満足度 ${Math.round(L.avgSat(S, 0))} · 収入 ${L.factionIncome(S, 0, L.dateOf(S.turn).month)}億円/月 · 維持費 ${L.upkeep(S, 0)}億円 · 魅力 ${Math.round(L.appeal(S, 0))} · 協議 同時${L.talksMax(S, 0)}件まで</p>`, tips + advNote);
+    const lureTag = S.lure ? `<span class="tag lure-tag">誘致合戦 あと${S.lure.left}か月</span>` : '';
+    sheetFrame(`<div class="head"><h2>${NAMES[me.capital]}陣営</h2><span class="tag">${L.owned(S, 0).length}市町村</span>${goalTag()}${lureTag}${advTag}</div>
+      <p class="facts num">人口 ${L.totalPop(S, 0).toFixed(1)}千人 · 平均満足度 ${Math.round(L.avgSat(S, 0))} · 収入 ${L.factionIncome(S, 0, L.dateOf(S.turn).month)}億円/月 · 維持費 ${L.upkeep(S, 0)}億円 · 魅力 ${Math.round(L.appeal(S, 0))} · 協議 同時${L.talksMax(S, 0)}件まで</p>`, lureHtml() + tips + advNote);
     for (const b of sh.querySelectorAll('[data-open-staff]')) b.onclick = () => showStaff('adv');
+    bindLure(sh);
     return;
   }
   const c = sel, x = S.m[c], info = L.INFO[c], month = L.dateOf(S.turn).month;
@@ -232,6 +238,8 @@ function renderSheet() {
     if (mine) alert = `狙われています・あと${x.talk.left}か月`;
     notes += `<p class="note${mine ? ' talking' : ''}" style="${mine ? 'color:var(--bad)' : ''}">${mine ? 'この市町村が狙われています。' : ''}引き留め ${x.talk.keep || 0}/${L.KEEP_MAX}段（賛成 −${(x.talk.keep || 0) * L.KEEP_STEP}ポイント）</p>`;
   }
+  if (x.firms && x.firms.length) notes += `<p class="note">立地企業：${x.firms.map(k => k.name).join('、')}（税収 毎月+${L.firmInc(x)}億円。この市町村を持つ陣営に入ります）</p>`;
+  if (S.lure && L.lureRows(S, ADJ).some(r => r.site === c)) notes += lureHtml(c);
   if (x.pact.length) notes += `<p class="note">連携協定：${x.pact.map(f => S.factions[f].name).join('、')}</p>`;
   const locals = (S.staff || []).filter(q => q.home === c && !q.ext);
   if (locals.length) notes += `<p class="note">ゆかりの人材：${locals.map(q => `${q.name}（${q.f < 0 ? '未登用' : (q.f === 0 ? 'あなたの陣営' : S.factions[q.f].name)}）`).join('、')}</p>`;
@@ -248,6 +256,7 @@ function renderSheet() {
   const third = !t ? 'talk' : (t.rival !== undefined ? (L.inTalk(t, 0) ? 'raise' : 'talk') : (t.f !== 0 ? 'counter' : 'talk'));
   const attacked = mine && t && !L.inTalk(t, 0);
   const cmds = mine ? (attacked ? ['keep', 'care', 'ind', 'tour', 'dis', 'invite'] : ['ind', 'tour', 'care', 'dis', 'invite']) : ['visit', 'pact', third];
+  if (mine && S.lure && L.lureSite(S, ADJ, 0) === c) cmds.unshift('lure');
   if (S.budget === undefined) S.budget = 1;
   const EFF = { ind: '産業力', tour: '観光力', care: '満足度', dis: '防災力', visit: '関係度' };
   const btns = cmds.map(k => {
@@ -256,8 +265,8 @@ function renderSheet() {
     const e = L.cmdEffect(S, 0, k, sc);
     // 産業力・観光力は陣営の魅力にも効くので、上がり幅を添える
     const ga = (k === 'ind' || k === 'tour') ? Math.min(e, 100 - x[k]) / 2 * x.pop / (L.totalPop(S, 0) || 1) : 0;
-    const note = EFF[k] ? `${EFF[k]} +${e}${ga >= 0.05 ? `・陣営の魅力 +${ga.toFixed(1)}` : ''}` : def.note;
-    return `<button class="cmd${['talk', 'counter', 'raise', 'keep'].includes(k) ? ' primary' : ''}" data-cmd="${k}" aria-disabled="${!r.ok}">
+    const note = EFF[k] ? `${EFF[k]} +${e}${ga >= 0.05 ? `・陣営の魅力 +${ga.toFixed(1)}` : ''}` : k === 'lure' ? `+${L.LURE_PT}点（${L.lureBid(S, 0)}/${L.LURE_MAX}段）・負けたら戻る` : def.note;
+    return `<button class="cmd${['talk', 'counter', 'raise', 'keep', 'lure'].includes(k) ? ' primary' : ''}" data-cmd="${k}" aria-disabled="${!r.ok}">
       <span class="ttl"><strong>${def.label}</strong><span class="cost num">${cost ? cost + '億・' : ''}行動${def.ap}</span></span><small>${r.ok ? note : r.reason}</small></button>`;
   }).join('');
   const relTxt = mine ? ` · 魅力 ${Math.round(L.appealOf(S, c))}` : ` · 関係度 ${Math.round(S.rel[0][c])}`;
@@ -267,6 +276,49 @@ function renderSheet() {
     ${notes}${cmds.some(k => L.SCALABLE.includes(k)) ? budgetHtml() : ''}<div class="cmds">${btns}</div>`);
   for (const b of sh.querySelectorAll('.cmd')) b.onclick = () => runCmd(b.dataset.cmd);
   for (const b of sh.querySelectorAll('[data-scale]')) b.onclick = () => { S.budget = Number(b.dataset.scale); save(); renderSheet(); };
+  bindLure(sh);
+}
+// ---------- 誘致合戦 ----------
+const facName = k => k === 0 ? 'あなたの陣営' : S.factions[k].name;
+const firmGain = o => `税収 毎月+${o.inc}億円・産業力 +${o.ind}・人口 +${(o.pop * 100).toFixed(1)}％`;
+// 点数の表：立地点＋補助金（1段6点）。win を渡すと決まった陣営に印を付ける
+function lureList(rows, win) {
+  return `<ul class="lrows">${rows.map(r => `<li class="${r.f === 0 ? 'me' : ''}${win !== undefined && r.f === win ? ' win' : ''}"><i class="dot" style="background:${colorVar(r.f)}"></i><span class="who">${facName(r.f)}<small>${NAMES[r.site]}・立地${r.pt}＋補助金${r.n}段</small></span><b class="num">${r.pt + r.n * L.LURE_PT}点</b></li>`).join('')}</ul>`;
+}
+// 台帳に出す誘致合戦のカード。here は今見ている市町村（自分の候補地なら下のボタンを案内する）
+function lureHtml(here) {
+  const lu = S.lure;
+  if (!lu) return '';
+  const mySite = L.lureSite(S, ADJ, 0);
+  const act = !mySite ? `<span class="why">${lu.region}圏域とその隣に自陣営の市町村がないので参加できません</span>`
+    : here === mySite ? `<span class="why">あなたの候補地です。下の「補助金を上乗せ」で1段${L.cmdCost(S, 'lure', mySite, undefined, 0)}億円・+${L.LURE_PT}点。負けたら全額戻ります</span>`
+    : `<button class="linkbtn" data-lure-site="${mySite}">候補地の${NAMES[mySite]}で補助金を上乗せする</button>`;
+  return `<div class="lure"><div class="top"><b class="nm">誘致合戦</b><small>${lu.region}圏域・${lu.name}</small><span class="left num">あと${lu.left}か月</span></div>
+    <span class="fx">選ばれると：${firmGain(lu)}</span>${lureList(L.lureRows(S, ADJ))}
+    <span class="why">点数のいちばん高い候補地に決まります（差が小さいと入れ替わることも）</span>${act}</div>`;
+}
+function bindLure(root) {
+  for (const b of root.querySelectorAll('[data-lure-site]')) b.onclick = () => { closeOverlay(); sel = null; select(b.dataset.lureSite); if (!sheetOpen) setSheetOpen(true); };
+}
+// 始まりと決着の知らせ（あなたの陣営が候補地を持つとき）
+function showLure(s, onOk) {
+  const start = s.phase === 'start', mine = s.rows.find(r => r.f === 0), go = onOk || next;
+  let body;
+  if (start) {
+    body = `<p class="sub">${s.region}圏域に${s.name}の進出話が来ました。候補地を持つ陣営が補助金を出し合って奪い合います。</p>
+      <div class="lure"><span class="fx">選ばれると：${firmGain(s)}</span>${lureList(s.rows)}</div>
+      <p class="note">${mine ? `あなたの候補地は<b>${NAMES[mine.site]}</b>。台帳の「補助金を上乗せ」で1段${s.stepAmt}億円・+${L.LURE_PT}点（行動1）。負けたら補助金は戻ります。` : ''}${L.LURE_MONTHS}か月目の月末に、点数のいちばん高い候補地に決まります。産業力を上げると立地点も上がります。</p>`;
+  } else {
+    const won = s.f === 0;
+    body = `<p class="sub">${s.region}圏域・${s.name}の進出先</p>
+      <div class="lure">${lureList(s.rows, s.f)}</div>
+      <p style="margin:14px 0 0;font-weight:700;color:${won ? 'var(--good)' : 'var(--bad)'}">${won ? `${NAMES[s.code]}に${s.name}が立地します。${firmGain(s)}` : `${facName(s.f)}の${NAMES[s.code]}に決まりました。${mine && mine.paid ? `補助金${mine.paid}億円は戻りました。` : ''}`}</p>`;
+  }
+  openOverlay(`<h3>${start ? '誘致合戦' : '誘致合戦 決着'}</h3>${body}
+    <div class="row">${start && mine ? `<button class="btn main" id="lureGo">候補地を見る</button>` : ''}<button class="btn${start && mine ? '' : ' main'}" id="okBtn">次へ</button></div>`);
+  $('okBtn').onclick = go;
+  // 候補地を選んでおき、残りの知らせのあとに台帳で見られるようにする
+  if ($('lureGo')) $('lureGo').onclick = () => { sel = mine.site; if (!sheetOpen) setSheetOpen(true); go(); if (!replay) render(); };
 }
 function goalTag() {
   if (S.mode !== 'region') return '';
@@ -327,7 +379,7 @@ function endMonth() {
     startReplay(steps, before, () => { toast(summary); queue = S.over ? [() => showOver()] : []; next(); });
   } else {
     render(); toast(summary);
-    queue = res.votes.map(v => () => showVote(v, next));
+    queue = [...res.votes.map(v => () => showVote(v, next)), ...res.lures.map(s => () => showLure(s, next))];
     if (S.over) queue.push(() => showOver());
     next();
   }
@@ -351,6 +403,10 @@ function stepCaption(s) {
   if (s.kind === 'contest') {
     const nm = k => k === 0 ? 'あなたの陣営' : S.factions[k].name;
     return { who: `条件の競り合い・${n}`, what: `${nm(s.winner)}の条件が選ばれました（上乗せ ${s.bids[s.winner]}段 対 ${s.bids[s.loser]}段）`, color: colorVar(s.winner), warn: s.loser === 0 };
+  }
+  if (s.kind === 'lure') {
+    if (s.phase === 'start') return { who: `誘致合戦・${s.region}圏域`, what: `${s.name}の進出先を${s.rows.length}陣営が争う（${L.LURE_MONTHS}か月）`, color: 'var(--warn)', warn: false };
+    return { who: `誘致合戦・${n}`, what: `${s.name}は${facName(s.f)}に決定（補助金${s.rows.find(r => r.f === s.f).n}段）`, color: colorVar(s.f), warn: s.mine && s.f !== 0 };
   }
   if (s.kind === 'event') return { who: '出来事', what: s.text, color: s.tone === 'bad' ? 'var(--bad)' : 'var(--good)', warn: false };
   if (s.kind === 'vote') {
@@ -392,6 +448,7 @@ function playStep() {
   paintMap();
   const mineVote = s.kind === 'vote' && (s.f === 0 || s.prev === 0 || (s.contest && s.contest.loser === 0));
   if (mineVote) replayTimer = setTimeout(() => showVote(s, () => { closeOverlay(); advance(); }), 900);
+  else if (s.kind === 'lure' && s.mine) replayTimer = setTimeout(() => showLure(s, () => { closeOverlay(); advance(); }), 900);
   else replayTimer = setTimeout(advance, s.kind === 'rival' && ['visit', 'pact', 'talk'].includes(s.cmd) || s.kind !== 'rival' ? 1700 : 1100);
 }
 function advance() { if (!replay) return; replay.i++; playStep(); }
@@ -400,11 +457,11 @@ function endReplay() {
   if (!replay) return;
   const { done, home } = replay;
   // 飛ばした分の自分に関わる住民投票は、結果だけ順に見せる
-  const rest = replay.steps.slice(replay.i + 1).filter(s => s.kind === 'vote' && (s.f === 0 || s.prev === 0));
+  const rest = replay.steps.slice(replay.i + 1).filter(s => (s.kind === 'vote' && (s.f === 0 || s.prev === 0)) || (s.kind === 'lure' && s.mine));
   replay = null;
   $('pulse').textContent = ''; $('replay').hidden = true; $('chips').hidden = false; $('endBtn').disabled = false;
   animateTo(home); render();
-  if (rest.length) { queue = rest.map(v => () => showVote(v, next)); queue.push(done); next(); }
+  if (rest.length) { queue = rest.map(v => () => v.kind === 'lure' ? showLure(v, next) : showVote(v, next)); queue.push(done); next(); }
   else done();
 }
 $('replay').addEventListener('click', e => { if (e.target.id === 'rpSkip') return; advance(); });
@@ -584,8 +641,10 @@ function showFactions() {
   const regions = L.REGIONS.map(r => { const cs = L.regionCodes(r), t = `${r} ${cs.filter(c => S.m[c].owner === 0).length}/${cs.length}`; return S.mode === 'region' && S.goal === r ? `<b>${t}（目標）</b>` : t; }).join('　');
   openOverlay(`<button class="iconbtn close" id="xBtn" aria-label="閉じる">✕</button><h3>陣営</h3>
     <p class="sub">圏域ごとの支配：${regions}</p><div class="factions">${rows}</div>
+    ${S.lure ? `<div class="h4">誘致合戦</div>${lureHtml()}` : ''}
     <p class="sub" style="margin-top:14px">進行中の合併協議：${talks.length ? talks.join('、') : 'なし'}（同時に${L.talksMax(S, 0)}件まで。陣営の魅力${L.APPEAL_TALKS.join('・')}でそれぞれ1件増える）</p>`);
   $('xBtn').onclick = closeOverlay;
+  bindLure($('panel'));
 }
 function showNews() {
   seenLog = S.log.length; renderStatus();
@@ -624,6 +683,7 @@ const HOWTO = `<li><b>交流事業</b>で隣の市町村との関係度を上げ
   <li>内政と交流事業は<b>予算規模</b>を選べる。大きいほど効果が大きいが割高</li>
   <li>人材にはC〜Sのランクがあり、<b>県外から招へい</b>で高ランクを迎えられる</li>
   <li><b>偉人アドバイザー</b>：斎藤道三・織田信長・竹中半兵衛など岐阜ゆかりの歴史人物を、ゆかりの地を持ち、偉人ごとの条件（合併を1回可決、財源100億円など）を満たすと人材の画面から招ける。${L.ADV_MONTHS}か月だけ効果をくれる。毎年9月は関ケ原町を持つ陣営に関ケ原の偉人が訪れる</li>
+  <li><b>誘致合戦</b>：ときどき大型の企業が圏域に進出先を探しに来る。圏域とその隣に市町村を持つ陣営が、候補地で<b>補助金を上乗せ</b>して競う。立地点（産業力など）＋補助金の点数が高い候補地に決まり、毎月の税収と産業力・人口が伸びる。負けた補助金は戻る。企業の税収は、その市町村を持つ陣営に入る</li>
   <li>相手の本拠地は、その陣営の市町村が3つ以下になると切り崩せる</li>
   <li>自分の市町村が合併協議をかけられたら、<b>引き留め</b>で住民投票の賛成を下げられる（最大3段）</li>
   <li>財源のマイナスが3か月続くか、満足度が20を下回ると負け</li>`;
