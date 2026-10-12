@@ -613,6 +613,55 @@
     if (mine) { res.lures.push(step); res.news.push(win.f === 0 ? `${L.name}を誘致` : `${L.name}の誘致に敗れる`); }
   }
 
+  // ---------- 合流 ----------
+  // 市町村を減らして少なくなったライバルは、人口がずっと多い隣の陣営に合流を申し出る（戦国SLGの臣従）。
+  // 伸び盛りの陣営は申し出ない（いちばん多かったときより市町村が減っていることが条件）。
+  // 市町村・財源・人材が受け入れた陣営に移る。あなたの陣営は合流を申し出ない
+  const JOIN_TOWNS = 5, JOIN_RATIO = 3, JOIN_P = 0.2, JOIN_SAT = 5;
+  function bordering(st, adj, g, h) { return owned(st, g).some(c => adj[c].some(n => st.m[n].owner === h)); }
+  function tickJoin(st, adj, names, res) {
+    for (const G of st.factions) {
+      const n = owned(st, G.id).length;
+      G.peak = Math.max(G.peak || 0, n);
+      if (!G.ai || !G.alive || n > JOIN_TOWNS || n >= G.peak) continue;
+      const pg = totalPop(st, G.id);
+      const H = st.factions.filter(o => o.alive && o.id !== G.id && bordering(st, adj, G.id, o.id) && totalPop(st, o.id) >= pg * JOIN_RATIO)
+        .sort((a, b) => totalPop(st, b.id) - totalPop(st, a.id))[0];
+      if (H && rnd(st) < JOIN_P) joinFaction(st, names, G.id, H.id, res);
+    }
+  }
+  function joinFaction(st, names, g, h, res) {
+    const G = st.factions[g], H = st.factions[h], towns = owned(st, g);
+    for (const c of towns) { const x = st.m[c]; x.owner = h; x.sat = clamp(x.sat - JOIN_SAT, 0, 100); st.rel[h][c] = Math.max(st.rel[h][c], 60); }
+    // g の協定・協議はなくなる。受け入れた陣営が自分の市町村にかけていた協議もなくなる
+    for (const c in st.m) {
+      const x = st.m[c], t = x.talk;
+      x.pact = x.pact.filter(k => k !== g);
+      if (!t) continue;
+      const left = [t.f, t.rival].filter(k => k !== undefined && k !== g && k !== x.owner);
+      if (left.length === (t.rival === undefined ? 1 : 2)) continue;
+      x.talk = left.length ? { f: left[0], left: t.left, keep: t.keep } : null;
+    }
+    if (st.lure && st.lure.bids[g]) { G.money += st.lure.bids[g].paid; delete st.lure.bids[g]; }
+    const gain = Math.max(0, G.money);
+    H.money += gain; G.money = 0;
+    const joined = [];
+    for (const p of staffOf(st, g)) {
+      p.role = null;
+      if (staffOf(st, h).length < staffMax(st, h)) { p.f = h; joined.push(p.name); } else p.f = -1;
+    }
+    if (H.ai) autoAssign(st, h);
+    ensureAdv(st);
+    for (const a of st.adv[g]) st.advCool[a.id] = ADV_COOL;
+    st.adv[g] = [];
+    G.alive = false;
+    const who = h === 0 ? 'あなたの陣営' : H.name;
+    addLog(st, `${G.name}が${who}への合流を申し出て、${towns.map(c => names[c]).join('・')}が加わりました${joined.length ? `（人材：${joined.join('・')}）` : ''}`, h === 0 ? 'good' : 'rival');
+    const step = { kind: 'join', code: G.capital, f: h, g, gname: G.name, towns, joined, money: gain, mine: h === 0 };
+    res.steps.push(step);
+    if (h === 0) { res.joins.push(step); res.news.push(`${G.name}が合流`); }
+  }
+
   function upkeep(st, f) { return Math.round(owned(st, f).reduce((s, c) => s + 0.8 + st.m[c].pop * 0.012, 0) + staffUpkeep(st, f)); }
   function seasonX(code, month) {
     const s = SEASON[INFO[code][2]];
@@ -692,6 +741,8 @@
   function inTalk(t, f) { return !!t && (t.f === f || t.rival === f); }
   function talksOf(st, f) { return Object.keys(st.m).filter(c => inTalk(st.m[c].talk, f)).length; }
   const BID_MAX = 5;
+  // ライバルAI：様子見する確率、合併協議を申し入れる賛成の見込み、境目の満足度を守る確率
+  const AI_IDLE = 0.1, AI_VOTE = 52, AI_GUARD = 0.3;
   const KEEP_MAX = 3, KEEP_STEP = 5, KEEP_AI = 0.5;
 
   function canDo(st, adj, f, cmd, code, apLeft, scale) {
@@ -838,15 +889,19 @@
         if (fac.money - cmdCost(st, 'lure', site, undefined, f) < 25 || rnd(st) < 0.15 || !tryDo('lure', site)) break;
       }
     }
+    // 隣り合うほかの陣営の、いちばん高い平均満足度（切り崩されやすさを見る）
+    const rivalSat = c => st.factions.reduce((m, o) => o.id !== f && o.alive && adjacentTo(st, adj, c, o.id) ? Math.max(m, avgSat(st, o.id)) : m, 0);
     let guard = 12;
     while (ap > 0 && guard-- > 0) {
-      if (rnd(st) < 0.25) { ap--; continue; } // ときどき様子見
+      if (rnd(st) < AI_IDLE) { ap--; continue; } // ときどき様子見
       const near = Object.keys(st.m).filter(c => st.m[c].owner !== f && adjacentTo(st, adj, c, f));
       near.sort((a, b) => st.rel[f][b] - st.rel[f][a]);
       const border = near.filter(c => !st.m[c].talk);
+      // 合併協議の準備ができていて、お金だけ足りないときは貯める
+      const saving = border.some(c => { const r = canDo(st, adj, f, 'talk', c, 99); return !r.ok && r.reason.startsWith('財源') && voteExpect(st, f, c) >= AI_VOTE; });
       let done = false;
       // ときどき、いちばん大きな市町村の魅力を上げる
-      if (fac.money > 40 && rnd(st) < 0.2) {
+      if (!saving && fac.money > 40 && rnd(st) < 0.2) {
         const big = owned(st, f).sort((a, b) => st.m[b].pop - st.m[a].pop)[0];
         if (big && tryDo(st.m[big].ind <= st.m[big].tour + 15 ? 'ind' : 'tour', big)) continue;
       }
@@ -857,6 +912,11 @@
           if (t && !inTalk(t, f) && (t.keep || 0) < KEEP_MAX && fac.money > cmdCost(st, 'keep', c, undefined, f) * 2 && rnd(st) < KEEP_AI && tryDo('keep', c)) { done = true; break; }
         }
         if (done) continue;
+        // 切り崩されそうな境目の市町村は、先に満足度を上げる（本拠地を優先）
+        const own = owned(st, f);
+        const weak = own.filter(c => { const rs = rivalSat(c); return rs && !(c === fac.capital && own.length > 3) && (st.m[c].sat < 47 || rs - st.m[c].sat >= 5); })
+          .sort((a, b) => (b === fac.capital) - (a === fac.capital) || st.m[a].sat - st.m[b].sat);
+        if (weak.length && rnd(st) < AI_GUARD && tryDo('care', weak[0])) continue;
         // 競り合いで負けていれば上乗せ
         for (const c of near) {
           const t = st.m[c].talk;
@@ -866,10 +926,13 @@
           }
         }
         if (!done) for (const c of near) { const t = st.m[c].talk; if (t && t.rival === undefined && t.f !== f && rnd(st) < 0.5 && tryDo('counter', c)) { done = true; break; } }
-        if (!done) for (const c of border) { if (tryDo('talk', c)) { done = true; break; } }
+        // 合併協議は、賛成の見込みが立つ相手にだけ申し入れる
+        if (!done) for (const c of border) { if (voteExpect(st, f, c) >= AI_VOTE && tryDo('talk', c)) { done = true; break; } }
         if (!done) for (const c of near) { if (st.m[c].owner === -1 && tryDo('pact', c)) { done = true; break; } }
         if (!done && fac.money > 12) {
-          const t = near.find(c => st.m[c].owner === -1 && st.rel[f][c] < 95) || near.find(c => st.m[c].owner !== -1 && st.rel[f][c] < 80);
+          // 自陣営の協議で見込みが低ければ、まずそこと交流する
+          const t = near.find(c => st.m[c].talk && st.m[c].talk.f === f && voteExpect(st, f, c) < 60 && st.rel[f][c] < 100)
+            || near.find(c => st.m[c].owner === -1 && st.rel[f][c] < 95) || near.find(c => st.m[c].owner !== -1 && st.rel[f][c] < 80);
           if (t && tryDo('visit', t)) done = true;
         }
       }
@@ -878,8 +941,8 @@
         const big = owned(st, f).sort((a, b) => st.m[b].pop - st.m[a].pop);
         if (mine.length && st.m[mine[0]].sat < 48 && tryDo('care', mine[0])) done = true;
         else if (fac.money > 60 && big.length && st.m[big[0]].sat < 66 && tryDo('care', big[0])) done = true;
-        else if (fac.money > 80 && tryDo('invite', fac.capital)) done = true;
-        else if (fac.money > 30 && tryDo('ind', fac.capital)) done = true;
+        else if (!saving && fac.money > 80 && tryDo('invite', fac.capital)) done = true;
+        else if (!saving && fac.money > 30 && tryDo('ind', fac.capital)) done = true;
       }
       if (!done) break;
     }
@@ -891,12 +954,17 @@
   }
   // 偉人アドバイザーによる住民投票の賛成の上乗せ
   function advVote(st, f, code) { const o = st.m[code].owner; return advBonus(st, f, 'vote') + (o >= 0 && o !== f ? advBonus(st, f, 'steal') : 0); }
-  function voteFor(st, f, code, bonus) {
-    const x = st.m[code]; const rel = st.rel[f][code];
-    let yes = 50 + (avgSat(st, f) - x.sat) * 0.4 + (rel - 70) * 0.6 + (rnd(st) * 20 - 10) + (bonus || 0) + roleVal(st, f, 'nego') / 12 + appealVote(st, f, code) + advVote(st, f, code);
+  // 住民投票の賛成率の見込み（乱数の分を除く）
+  function voteExpect(st, f, code, bonus) {
+    const x = st.m[code];
+    let yes = 50 + (avgSat(st, f) - x.sat) * 0.4 + (st.rel[f][code] - 70) * 0.6 + (bonus || 0) + roleVal(st, f, 'nego') / 12 + appealVote(st, f, code) + advVote(st, f, code);
     if (x.pop > totalPop(st, f) * 0.7) yes -= 15;
     if (x.owner !== -1) yes -= 8;
-    yes = clamp(yes, 4, 96);
+    return yes;
+  }
+  function voteFor(st, f, code, bonus) {
+    const x = st.m[code];
+    const yes = clamp(voteExpect(st, f, code, bonus) + (rnd(st) * 20 - 10), 4, 96);
     const turnout = 0.42 + rnd(st) * 0.25;
     const voters = Math.round(x.pop * 1000 * 0.82);
     const cast = Math.round(voters * turnout);
@@ -906,7 +974,7 @@
 
   // 月を終える
   function endTurn(st, adj, names) {
-    const res = { votes: [], news: [], steps: [], lures: [] };
+    const res = { votes: [], news: [], steps: [], lures: [], joins: [] };
     if (st.over) return res;
     ensureStaff(st);
     ensureAdv(st);
@@ -971,6 +1039,8 @@
     }
     // 誘致合戦の決着
     tickLure(st, adj, names, res);
+    // 小さくなったライバルの合流
+    tickJoin(st, adj, names, res);
     // 月を進める
     st.turn++;
     const d = dateOf(st.turn);
@@ -1084,7 +1154,7 @@
     }
   }
 
-  const api = { FIRMS, LURE_MONTHS, LURE_PT, LURE_MAX, firmInc, sitePoint, lureSite, lureBid, lureScore, lureParts, lureRows, ADVISORS, ADV_BY_ID, ADV_MONTHS, ADV_COOL, ADV_SLOT2, ensureAdv, advCond, advMeasure, advOf, advFx, advBonus, advMax, advUsed, advHolder, canInviteAdv, inviteAdv, advise, advVote, regionLength, talksMax, APPEAL_TALKS, appeal, appealOf, appealRel, appealVote, INFO, REGIONS, MODES, regionCodes, goalOf, continueToUnify, CMDS, dateOf, difficultyOf, newGame, owned, apMax, totalPop, avgSat, incomeOf,
+  const api = { JOIN_TOWNS, JOIN_RATIO, JOIN_SAT, AI_GUARD, voteExpect, AI_IDLE, FIRMS, LURE_MONTHS, LURE_PT, LURE_MAX, firmInc, sitePoint, lureSite, lureBid, lureScore, lureParts, lureRows, ADVISORS, ADV_BY_ID, ADV_MONTHS, ADV_COOL, ADV_SLOT2, ensureAdv, advCond, advMeasure, advOf, advFx, advBonus, advMax, advUsed, advHolder, canInviteAdv, inviteAdv, advise, advVote, regionLength, talksMax, APPEAL_TALKS, appeal, appealOf, appealRel, appealVote, INFO, REGIONS, MODES, regionCodes, goalOf, continueToUnify, CMDS, dateOf, difficultyOf, newGame, owned, apMax, totalPop, avgSat, incomeOf,
     factionIncome, grantOf, tagInfo, upkeep, cmdCost, cmdEffect, SCALES, SCALABLE, gradeOf, GRADE_PAY, SCOUT, canScout, scout, ROLES, ABIL, ensureStaff, staffOf, staffMax, abil, roleVal, hireCandidates, hireCost, canHire, hire, assignRole, autoAssign, staffUpkeep, aiStaff, inTalk, BID_MAX, KEEP_MAX, KEEP_STEP, canDo, doCmd, endTurn, adjacentTo, talksOf, seasonX, clamp };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.GameLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);

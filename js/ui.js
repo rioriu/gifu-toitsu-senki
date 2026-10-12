@@ -379,7 +379,7 @@ function endMonth() {
     startReplay(steps, before, () => { toast(summary); queue = S.over ? [() => showOver()] : []; next(); });
   } else {
     render(); toast(summary);
-    queue = [...res.votes.map(v => () => showVote(v, next)), ...res.lures.map(s => () => showLure(s, next))];
+    queue = [...res.votes.map(v => () => showVote(v, next)), ...res.lures.map(s => () => showLure(s, next)), ...res.joins.map(s => () => showJoin(s, next))];
     if (S.over) queue.push(() => showOver());
     next();
   }
@@ -404,6 +404,7 @@ function stepCaption(s) {
     const nm = k => k === 0 ? 'あなたの陣営' : S.factions[k].name;
     return { who: `条件の競り合い・${n}`, what: `${nm(s.winner)}の条件が選ばれました（上乗せ ${s.bids[s.winner]}段 対 ${s.bids[s.loser]}段）`, color: colorVar(s.winner), warn: s.loser === 0 };
   }
+  if (s.kind === 'join') return { who: `合流・${s.gname}`, what: `${facName(s.f)}に合流（${s.towns.map(c => NAMES[c]).join('・')}）`, color: colorVar(s.f), warn: false };
   if (s.kind === 'lure') {
     if (s.phase === 'start') return { who: `誘致合戦・${s.region}圏域`, what: `${s.name}の進出先を${s.rows.length}陣営が争う（${L.LURE_MONTHS}か月）`, color: 'var(--warn)', warn: false };
     return { who: `誘致合戦・${n}`, what: `${s.name}は${facName(s.f)}に決定（補助金${s.rows.find(r => r.f === s.f).n}段）`, color: colorVar(s.f), warn: s.mine && s.f !== 0 };
@@ -445,10 +446,12 @@ function playStep() {
   const p = document.createElementNS(NS, 'path'); p.setAttribute('d', BYCODE[s.code].d); p.setAttribute('class', 'pulse');
   p.style.fill = cap.color; p.style.stroke = cap.color; pg.appendChild(p);
   if (s.kind === 'vote' && s.pass) setTimeout(() => { if (replay) { replay.owners[s.code] = s.f; paintMap(); } }, 500);
+  if (s.kind === 'join') setTimeout(() => { if (replay) { for (const c of s.towns) replay.owners[c] = s.f; paintMap(); } }, 500);
   paintMap();
   const mineVote = s.kind === 'vote' && (s.f === 0 || s.prev === 0 || (s.contest && s.contest.loser === 0));
   if (mineVote) replayTimer = setTimeout(() => showVote(s, () => { closeOverlay(); advance(); }), 900);
   else if (s.kind === 'lure' && s.mine) replayTimer = setTimeout(() => showLure(s, () => { closeOverlay(); advance(); }), 900);
+  else if (s.kind === 'join' && s.mine) replayTimer = setTimeout(() => showJoin(s, () => { closeOverlay(); advance(); }), 900);
   else replayTimer = setTimeout(advance, s.kind === 'rival' && ['visit', 'pact', 'talk'].includes(s.cmd) || s.kind !== 'rival' ? 1700 : 1100);
 }
 function advance() { if (!replay) return; replay.i++; playStep(); }
@@ -457,11 +460,11 @@ function endReplay() {
   if (!replay) return;
   const { done, home } = replay;
   // 飛ばした分の自分に関わる住民投票は、結果だけ順に見せる
-  const rest = replay.steps.slice(replay.i + 1).filter(s => (s.kind === 'vote' && (s.f === 0 || s.prev === 0)) || (s.kind === 'lure' && s.mine));
+  const rest = replay.steps.slice(replay.i + 1).filter(s => (s.kind === 'vote' && (s.f === 0 || s.prev === 0)) || ((s.kind === 'lure' || s.kind === 'join') && s.mine));
   replay = null;
   $('pulse').textContent = ''; $('replay').hidden = true; $('chips').hidden = false; $('endBtn').disabled = false;
   animateTo(home); render();
-  if (rest.length) { queue = rest.map(v => () => v.kind === 'lure' ? showLure(v, next) : showVote(v, next)); queue.push(done); next(); }
+  if (rest.length) { queue = rest.map(v => () => v.kind === 'lure' ? showLure(v, next) : v.kind === 'join' ? showJoin(v, next) : showVote(v, next)); queue.push(done); next(); }
   else done();
 }
 $('replay').addEventListener('click', e => { if (e.target.id === 'rpSkip') return; advance(); });
@@ -496,6 +499,16 @@ function showVote(v, onOk) {
       <div class="stamp ${v.pass ? 'pass' : ''}">${v.pass ? '可決' : '否決'}</div>
     </div>
     <p style="margin:14px 0 0;font-weight:700;color:${good ? 'var(--good)' : 'var(--bad)'}">${lead}</p>
+    <div class="row"><button class="btn main" id="okBtn">次へ</button></div>`);
+  $('okBtn').onclick = onOk || next;
+}
+// 小さくなったライバルが、あなたの陣営に合流してきたとき
+function showJoin(s, onOk) {
+  openOverlay(`<h3>合流</h3>
+    <p class="sub">${s.gname}が、あなたの陣営への合流を申し出ました。</p>
+    <div class="lure"><span class="fx">加わる市町村：${s.towns.map(c => NAMES[c]).join('・')}</span>
+      <span class="why">財源 +${s.money}億円${s.joined.length ? `・人材 ${s.joined.join('・')}` : ''}</span></div>
+    <p class="note">合流した市町村は、しばらく満足度が${L.JOIN_SAT}下がります。人材は役職なしで加わるので、人材の画面で役職に就けてください。</p>
     <div class="row"><button class="btn main" id="okBtn">次へ</button></div>`);
   $('okBtn').onclick = onOk || next;
 }
@@ -685,6 +698,7 @@ const HOWTO = `<li><b>交流事業</b>で隣の市町村との関係度を上げ
   <li><b>偉人アドバイザー</b>：斎藤道三・織田信長・竹中半兵衛など岐阜ゆかりの歴史人物を、ゆかりの地を持ち、偉人ごとの条件（合併を1回可決、財源100億円など）を満たすと人材の画面から招ける。${L.ADV_MONTHS}か月だけ効果をくれる。毎年9月は関ケ原町を持つ陣営に関ケ原の偉人が訪れる</li>
   <li><b>誘致合戦</b>：ときどき大型の企業が圏域に進出先を探しに来る。圏域とその隣に市町村を持つ陣営が、候補地で<b>補助金を上乗せ</b>して競う。立地点（産業力など）＋補助金の点数が高い候補地に決まり、毎月の税収と産業力・人口が伸びる。負けた補助金は戻る。企業の税収は、その市町村を持つ陣営に入る</li>
   <li>相手の本拠地は、その陣営の市町村が3つ以下になると切り崩せる</li>
+  <li><b>合流</b>：市町村を減らして${L.JOIN_TOWNS}つ以下になったライバルは、人口が${L.JOIN_RATIO}倍以上ある隣の陣営に合流を申し出ることがある。市町村・財源・人材がまとめて移る（ライバル同士でも起きる）</li>
   <li>自分の市町村が合併協議をかけられたら、<b>引き留め</b>で住民投票の賛成を下げられる（最大3段）</li>
   <li>財源のマイナスが3か月続くか、満足度が20を下回ると負け</li>`;
 

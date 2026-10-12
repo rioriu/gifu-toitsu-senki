@@ -2,12 +2,27 @@
 // 人に近い考え方で自陣営を動かすボットに何度も遊ばせ、スタート地点と遊び方ごとの勝率を測る。
 // ボットは画面と同じ GameLogic の公開関数だけを使う（ゲーム本体には手を入れない）。
 //
-// 使い方: node tools/balance.js [回数] [市町村コード...] [--mode=unify|region|both] [--years=20]
+// 使い方: node tools/balance.js [回数] [市町村コード...] [--mode=unify|region|both] [--years=20] [--set=名前=値,...]
 //   例: node tools/balance.js 100 21507 --mode=region
+//   --set は logic.js の定数をその場だけ差し替えて試す（例: --set=AI_IDLE=0.25,AI_GUARD=0）
 //   市町村を省くと、タイトル画面のおすすめ（難易度ごと）を全部測る
 'use strict';
 const fs = require('fs'), path = require('path'), vm = require('vm');
-const L = require('../js/logic.js');
+// --set があれば、logic.js の定数を書き換えて読み込む
+const SET = (process.argv.find(a => a.startsWith('--set=')) || '').slice(6).split(',').filter(Boolean).map(kv => kv.split('='));
+function loadLogic() {
+  if (!SET.length) return require('../js/logic.js');
+  let src = fs.readFileSync(path.join(__dirname, '../js/logic.js'), 'utf8');
+  for (const [k, v] of SET) {
+    const re = new RegExp('\\b' + k + ' = [^,;]+');
+    if (!re.test(src)) throw new Error(`logic.js に定数 ${k} が見つかりません`);
+    src = src.replace(re, `${k} = ${v}`);
+  }
+  const mod = { exports: {} };
+  vm.runInNewContext(src, { module: mod, globalThis: {}, Math, Object, JSON, Set, Number, Array });
+  return mod.exports;
+}
+const L = loadLogic();
 const ctx = {};
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../js/map-data.js'), 'utf8') + ';this.MAP = MAP;', ctx);
 const MAP = ctx.MAP;
@@ -17,14 +32,8 @@ for (const m of MAP.muni) { NAMES[m.code] = m.name; ADJ[m.code] = m.adj; }
 const PICKS = ['21201', '21202', '21205', '21204', '21203', '21361', '21505', '21604', '21507'];
 
 // ---------- ボット ----------
-// 住民投票の賛成率の見込み（乱数の分を除いた voteFor と同じ式）
-function expYes(st, f, c) {
-  const x = st.m[c];
-  let y = 50 + (L.avgSat(st, f) - x.sat) * 0.4 + (st.rel[f][c] - 70) * 0.6 + L.roleVal(st, f, 'nego') / 12 + L.appealVote(st, f, c) + L.advVote(st, f, c);
-  if (x.pop > L.totalPop(st, f) * 0.7) y -= 15;
-  if (x.owner !== -1) y -= 8;
-  return y;
-}
+// 住民投票の賛成率の見込み（乱数の分を除く）
+const expYes = (st, f, c) => L.voteExpect(st, f, c);
 // 自陣営と隣り合うライバル陣営の、いちばん高い平均満足度
 function rivalSat(st, f, c) {
   let best = 0;
@@ -123,7 +132,9 @@ function botTurn(st, f) {
     // 9. 満足度：いちばん低い市町村で子育て支援
     const low = own.slice().sort((a, b) => st.m[a].sat - st.m[b].sat)[0];
     if (st.m[low].sat < 60 && act('care', low, false, true)) continue;
-    // 10. 余裕があれば産業振興
+    // 10. 余裕があれば、満足度を上げて切り崩しやすくする（ライバルの市町村は平均満足度の差で切り崩せる）
+    if (me.money > 200 && st.m[low].sat < 90 && act('care', low, false, true)) continue;
+    // 11. まだ余裕があれば産業振興
     if (me.money > 80 && act('ind', big, false, true)) continue;
     break;
   }
@@ -164,6 +175,7 @@ function main() {
   const codes = nums.length ? nums : PICKS;
   const modes = (opt('mode') || 'both') === 'both' ? ['region', 'unify'] : [opt('mode')];
   const months = Number(opt('years') || 20) * 12;
+  if (SET.length) console.log(`差し替え：${SET.map(kv => kv.join('=')).join('、')}`);
   console.log(`各${n}回・最長${months / 12}年。勝ち＝${modes.map(m => L.MODES[m].label).join('／')}の達成`);
   console.log('| スタート | 難易度 | 遊び方 | 勝ち | 勝つまで（中央値） | 負け | 決着つかず | 最大の市町村数（中央値） |');
   console.log('| --- | --- | --- | --- | --- | --- | --- | --- |');
@@ -177,4 +189,4 @@ function main() {
   }
 }
 // require したときは、ボットと計測の関数だけを渡す
-if (require.main === module) main(); else module.exports = { botTurn, expYes, run, measure, MAP, NAMES, ADJ };
+if (require.main === module) main(); else module.exports = { L, botTurn, expYes, run, measure, MAP, NAMES, ADJ };
