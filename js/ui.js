@@ -29,10 +29,10 @@ function buildMap() {
     lg.appendChild(t); labelEls[m.code] = t;
   }
   const chips = $('chips');
-  for (const r of ['全県', ...L.REGIONS]) {
+  for (const r of ['自陣', '全県', ...L.REGIONS]) {
     const b = document.createElement('button'); b.textContent = r; b.dataset.r = r;
-    b.setAttribute('aria-pressed', r === '全県' ? 'true' : 'false');
-    b.onclick = () => { zoomRegion(r); for (const x of chips.children) x.setAttribute('aria-pressed', x === b ? 'true' : 'false'); };
+    b.setAttribute('aria-pressed', r === '自陣' ? 'true' : 'false');
+    b.onclick = () => zoomRegion(r);
     chips.appendChild(b);
   }
 }
@@ -42,12 +42,14 @@ function setVB(keep) { svg.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.w} ${vb
 function fitBox(b, pad) {
   const r = rect(); const sheetEl = $('sheet');
   const shH = sheetEl ? Math.min(sheetEl.offsetHeight, r.height * 0.6) : 0;
-  const visPx = Math.max(80, r.height - shH);
+  // 上の圏域ボタンと凡例に隠れる分も避ける
+  const lg = $('legend'), top = lg && lg.offsetHeight ? Math.min(r.height * 0.25, lg.offsetTop + lg.offsetHeight + 4) : 0;
+  const visPx = Math.max(80, r.height - shH - top);
   let w = b.w + pad * 2, visH = b.h + pad * 2;
   const asp = r.width / visPx;
   if (w / visH > asp) visH = w / asp; else w = visH * asp;
   const h = w * r.height / Math.max(1, r.width);
-  return { x: b.x + b.w / 2 - w / 2, y: b.y + b.h / 2 - visH / 2, w, h };
+  return { x: b.x + b.w / 2 - w / 2, y: b.y + b.h / 2 - visH / 2 - top * w / Math.max(1, r.width), w, h };
 }
 let anim = null;
 function animateTo(t) {
@@ -65,10 +67,44 @@ function bboxOf(codes) {
   for (const c of codes) { const b = pathEls[c].getBBox(); x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y); x1 = Math.max(x1, b.x + b.width); y1 = Math.max(y1, b.y + b.height); }
   return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 }
-function zoomRegion(r) {
-  const codes = r === '全県' ? Object.keys(NAMES) : Object.keys(NAMES).filter(c => L.INFO[c][0] === r);
-  const b = bboxOf(codes), pad = r === '全県' ? 14 : 30;
-  animateTo(fitBox(b, pad)); setTimeout(() => { lastBox = { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 }; }, 320);
+// 自陣：自陣営の市町村と、隣の市町村の名前の位置が入るところまで寄る（隣をそのままタップできる大きさ）
+function homeBox() {
+  const own = L.owned(S, 0);
+  if (!own.length) return bboxOf(Object.keys(NAMES));
+  const b = bboxOf(own);
+  let x0 = b.x, y0 = b.y, x1 = b.x + b.w, y1 = b.y + b.h;
+  for (const c of own) for (const n of ADJ[c]) {
+    if (S.m[n].owner === 0) continue;
+    const m = BYCODE[n]; x0 = Math.min(x0, m.lx); y0 = Math.min(y0, m.ly); x1 = Math.max(x1, m.lx); y1 = Math.max(y1, m.ly);
+  }
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+function regionView(r) {
+  if (r === '自陣') return { b: homeBox(), pad: 40, flash: L.owned(S, 0) };
+  if (r === '全県') return { b: bboxOf(Object.keys(NAMES)), pad: 14, flash: [] };
+  const codes = L.regionCodes(r);
+  return { b: bboxOf(codes), pad: 8, flash: codes };
+}
+function pressChip(r) { for (const x of $('chips').children) x.setAttribute('aria-pressed', x.dataset.r === r ? 'true' : 'false'); }
+function zoomRegion(r, now) {
+  const { b, pad, flash } = regionView(r), box = { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 };
+  pressChip(r);
+  if (now) { vb = fitBox(b, pad); setVB(); lastBox = box; }
+  else { animateTo(fitBox(b, pad)); setTimeout(() => { lastBox = box; }, 320); }
+  flashArea(flash);
+}
+// どこからどこまでがその圏域かを、一瞬光らせて見せる
+let flashTimer = null;
+function flashArea(codes) {
+  const g = $('flash'); g.textContent = ''; clearTimeout(flashTimer);
+  if (!codes.length) return;
+  // 太い縁取りの上に同じ形の塗りを重ねると、外周だけが縁取りとして残る
+  const inner = document.createElementNS(NS, 'g'); inner.setAttribute('class', 'flash');
+  for (const cls of ['fl-edge', 'fl-fill']) for (const c of codes) {
+    const p = document.createElementNS(NS, 'path'); p.setAttribute('d', BYCODE[c].d); p.setAttribute('class', cls); p.setAttribute('fill-rule', 'evenodd'); inner.appendChild(p);
+  }
+  g.appendChild(inner);
+  flashTimer = setTimeout(() => { g.textContent = ''; }, 1900);
 }
 function updateLabels() {
   const ppu = rect().width / vb.w;
@@ -124,7 +160,7 @@ svg.addEventListener('pointermove', e => {
 const endPtr = e => {
   if (!ptrs.has(e.pointerId)) return;
   ptrs.delete(e.pointerId);
-  if (ptrs.size === 0 && moved < 8 && downTarget && downTarget.dataset && downTarget.dataset.code) select(downTarget.dataset.code);
+  if (ptrs.size === 0 && moved < 8 && downTarget && S) select(downTarget.dataset && downTarget.dataset.code);
   if (ptrs.size < 2) lastPinch = null;
 };
 svg.addEventListener('pointerup', endPtr); svg.addEventListener('pointercancel', endPtr);
@@ -191,34 +227,37 @@ function meter(label, v, cls) {
   v = Math.round(v);
   return `<div class="meter"><span>${label}</span><div class="bar ${cls || ''}${v < 30 && cls !== 'rel' ? ' low' : ''}"><i style="width:${v}%"></i></div><b class="num">${v}</b></div>`;
 }
-let sheetOpen = (() => { try { return localStorage.getItem(SAVE_KEY + '-sheet') !== '0'; } catch (e) { return true; } })();
-function setSheetOpen(v) {
-  sheetOpen = v; try { localStorage.setItem(SAVE_KEY + '-sheet', v ? '1' : '0'); } catch (e) {}
+// 台帳は名前・要点・コマンドだけを出し、数値や説明は「詳細」を押したときだけ開く
+let detailOpen = false;
+function setDetailOpen(v) {
+  detailOpen = v;
   const sh = $('sheet'); sh.dataset.open = v ? 'true' : 'false';
-  const hb = $('sheetHandle'); if (hb) hb.setAttribute('aria-expanded', v ? 'true' : 'false');
-  if (v && sel) requestAnimationFrame(() => ensureVisible(sel));
+  const b = $('detailBtn'); if (b) { b.setAttribute('aria-expanded', v ? 'true' : 'false'); b.textContent = v ? '閉じる' : '詳細'; }
+  if (sel) requestAnimationFrame(() => ensureVisible(sel));
 }
-function sheetFrame(peek, full) {
+function sheetFrame(head, line, main, full) {
   const sh = $('sheet');
-  sh.dataset.open = sheetOpen ? 'true' : 'false';
-  sh.innerHTML = `<button class="handle" id="sheetHandle" aria-expanded="${sheetOpen}" aria-label="詳細とコマンドを${sheetOpen ? '閉じる' : '開く'}"><i></i></button>
-    <div class="body"><div class="peek" id="sheetPeek">${peek}</div><div class="full">${full}</div></div>`;
-  $('sheetHandle').onclick = () => setSheetOpen(!sheetOpen);
-  $('sheetPeek').onclick = e => { if (!sheetOpen && !e.target.closest('button')) setSheetOpen(true); };
+  sh.dataset.open = detailOpen ? 'true' : 'false';
+  const btn = full ? `<button class="morebtn" id="detailBtn" aria-expanded="${detailOpen}">${detailOpen ? '閉じる' : '詳細'}</button>` : '';
+  sh.innerHTML = `<div class="body"><div class="head">${head}${btn}</div>${line ? `<p class="facts num">${line}</p>` : ''}${main}${full ? `<div class="full">${full}</div>` : ''}</div>`;
+  if (full) $('detailBtn').onclick = () => setDetailOpen(!detailOpen);
 }
 function renderSheet() {
   const sh = $('sheet');
   if (!sel) {
     const me = S.factions[0];
-    const tips = L.owned(S, 0).length === 1 && S.turn < 3
-      ? `<p class="empty">まずは<b>隣の市町村をタップ</b>して交流事業で関係度を上げましょう。関係度50で<b>連携協定</b>、70で<b>合併協議</b>に進めます。</p>`
-      : `<p class="empty">地図の市町村をタップすると、数値と使えるコマンドが出ます。</p>`;
+    const first = L.owned(S, 0).length === 1 && S.turn < 3;
+    const tips = first
+      ? `<p class="empty">関係度50で<b>連携協定</b>、70で<b>合併協議</b>に進めます。協議の3か月後に住民投票です。</p>`
+      : `<p class="empty">地図の市町村をタップすると、使えるコマンドが出ます。</p>`;
     const advs = L.advOf(S, 0);
     const advTag = advs.length ? `<span class="tag adv-tag">助言 ${advs.map(a => L.ADV_BY_ID[a.id].name).join('・')}</span>` : '';
     const advNote = advs.length ? `<div class="advs">${advs.map(a => advCard(a.id, a.left, true)).join('')}</div>` : advHint();
     const lureTag = S.lure ? `<span class="tag lure-tag">誘致合戦 あと${S.lure.left}か月</span>` : '';
-    sheetFrame(`<div class="head"><h2>${NAMES[me.capital]}陣営</h2><span class="tag">${L.owned(S, 0).length}市町村</span>${goalTag()}${lureTag}${advTag}</div>
-      <p class="facts num">人口 ${L.totalPop(S, 0).toFixed(1)}千人 · 平均満足度 ${Math.round(L.avgSat(S, 0))} · 収入 ${L.factionIncome(S, 0, L.dateOf(S.turn).month)}億円/月 · 維持費 ${L.upkeep(S, 0)}億円 · 魅力 ${Math.round(L.appeal(S, 0))} · 協議 同時${L.talksMax(S, 0)}件まで</p>`, lureHtml() + tips + advNote);
+    sheetFrame(`<h2>${NAMES[me.capital]}陣営</h2><span class="tag">${L.owned(S, 0).length}市町村</span>${goalTag()}${lureTag}${advTag}`,
+      first ? '<b>隣の市町村をタップ</b>して、交流事業で関係度を上げましょう' : '',
+      '',
+      `<p class="facts num">人口 ${L.totalPop(S, 0).toFixed(1)}千人 · 平均満足度 ${Math.round(L.avgSat(S, 0))} · 収入 ${L.factionIncome(S, 0, L.dateOf(S.turn).month)}億円/月 · 維持費 ${L.upkeep(S, 0)}億円 · 魅力 ${Math.round(L.appeal(S, 0))} · 協議 同時${L.talksMax(S, 0)}件まで</p>` + lureHtml() + tips + advNote);
     for (const b of sh.querySelectorAll('[data-open-staff]')) b.onclick = () => showStaff('adv');
     bindLure(sh);
     return;
@@ -226,8 +265,8 @@ function renderSheet() {
   const c = sel, x = S.m[c], info = L.INFO[c], month = L.dateOf(S.turn).month;
   const mine = x.owner === 0;
   const ownerTag = x.owner >= 0 ? `<span class="tag owner" style="background:${colorVar(x.owner)}">${ownerName(c)}${S.factions[x.owner].capital === c ? '・本拠地' : ''}</span>` : `<span class="tag">独立</span>`;
-  const tagTag = info[2] ? `<span class="tag">${info[2]}${L.seasonX(c, month) > 1 ? '・見ごろ' : ''}</span>` : '';
   let notes = '', alert = '';
+  if (info[2]) notes += `<p class="note">特産：${info[2]}${L.seasonX(c, month) > 1 ? '（いまが見ごろ）' : ''}</p>`;
   const fname = k => k === 0 ? 'あなたの陣営' : S.factions[k].name;
   if (x.talk && x.talk.rival !== undefined) {
     const t = x.talk;
@@ -269,11 +308,13 @@ function renderSheet() {
     return `<button class="cmd${['talk', 'counter', 'raise', 'keep', 'lure'].includes(k) ? ' primary' : ''}" data-cmd="${k}" aria-disabled="${!r.ok}">
       <span class="ttl"><strong>${def.label}</strong><span class="cost num">${cost ? cost + '億・' : ''}行動${def.ap}</span></span><small>${r.ok ? note : r.reason}</small></button>`;
   }).join('');
-  const relTxt = mine ? ` · 魅力 ${Math.round(L.appealOf(S, c))}` : ` · 関係度 ${Math.round(S.rel[0][c])}`;
-  sheetFrame(`<div class="head"><h2>${NAMES[c]}</h2>${ownerTag}<span class="tag">${info[0]}</span>${tagTag}</div>
-    <p class="facts num">人口 ${x.pop.toFixed(1)}千人 · 満足度 ${Math.round(x.sat)}${relTxt} · 収入 ${L.incomeOf(S, c, month).toFixed(1)}億円${alert ? ` <b class="alert">${alert}</b>` : ''}</p>`,
+  // 一行に収まる要点だけ。他陣営・独立なら関係度、自陣営なら満足度を先に出す
+  const line = (mine ? `満足度 ${Math.round(x.sat)} · 魅力 ${Math.round(L.appealOf(S, c))} · 収入 ${L.incomeOf(S, c, month).toFixed(1)}億円`
+    : `関係度 ${Math.round(S.rel[0][c])} · 満足度 ${Math.round(x.sat)} · 人口 ${x.pop.toFixed(0)}千人`) + (alert ? ` <b class="alert">${alert}</b>` : '');
+  sheetFrame(`<h2>${NAMES[c]}</h2>${ownerTag}<span class="tag">${info[0]}</span>`, line,
+    `${cmds.some(k => L.SCALABLE.includes(k)) ? budgetHtml() : ''}<div class="cmds">${btns}</div>`,
     `<div class="meters">${meter('産業力', x.ind)}${meter('観光力', x.tour)}${meter('満足度', x.sat)}${meter('防災力', x.dis)}${mine ? '' : meter('関係度', S.rel[0][c], 'rel')}</div>
-    ${notes}${cmds.some(k => L.SCALABLE.includes(k)) ? budgetHtml() : ''}<div class="cmds">${btns}</div>`);
+    <p class="facts num">人口 ${x.pop.toFixed(1)}千人 · 収入 ${L.incomeOf(S, c, month).toFixed(1)}億円/月</p>${notes}`);
   for (const b of sh.querySelectorAll('.cmd')) b.onclick = () => runCmd(b.dataset.cmd);
   for (const b of sh.querySelectorAll('[data-scale]')) b.onclick = () => { S.budget = Number(b.dataset.scale); save(); renderSheet(); };
   bindLure(sh);
@@ -298,7 +339,7 @@ function lureHtml(here) {
     <span class="why">点数のいちばん高い候補地に決まります（差が小さいと入れ替わることも）</span>${act}</div>`;
 }
 function bindLure(root) {
-  for (const b of root.querySelectorAll('[data-lure-site]')) b.onclick = () => { closeOverlay(); sel = null; select(b.dataset.lureSite); if (!sheetOpen) setSheetOpen(true); };
+  for (const b of root.querySelectorAll('[data-lure-site]')) b.onclick = () => { closeOverlay(); sel = null; select(b.dataset.lureSite); };
 }
 // 始まりと決着の知らせ（あなたの陣営が候補地を持つとき）
 function showLure(s, onOk) {
@@ -318,7 +359,7 @@ function showLure(s, onOk) {
     <div class="row">${start && mine ? `<button class="btn main" id="lureGo">候補地を見る</button>` : ''}<button class="btn${start && mine ? '' : ' main'}" id="okBtn">次へ</button></div>`);
   $('okBtn').onclick = go;
   // 候補地を選んでおき、残りの知らせのあとに台帳で見られるようにする
-  if ($('lureGo')) $('lureGo').onclick = () => { sel = mine.site; if (!sheetOpen) setSheetOpen(true); go(); if (!replay) render(); };
+  if ($('lureGo')) $('lureGo').onclick = () => { sel = mine.site; detailOpen = false; go(); if (!replay) render(); };
 }
 function goalTag() {
   if (S.mode !== 'region') return '';
@@ -339,7 +380,8 @@ function ensureVisible(c) {
 }
 function render() { renderStatus(); paintMap(); renderSheet(); }
 
-function select(c) { sel = sel === c ? null : c; paintMap(); renderSheet(); if (sel && sheetOpen) requestAnimationFrame(() => ensureVisible(sel)); }
+// 地図をタップするたびに詳細はたたむ。海や県の外をタップしたら選択も外す
+function select(c) { sel = c && sel !== c ? c : null; detailOpen = false; paintMap(); renderSheet(); if (sel) requestAnimationFrame(() => ensureVisible(sel)); }
 
 let toastTimer = null;
 function toast(msg) {
@@ -349,7 +391,7 @@ function toast(msg) {
 
 function budgetHtml() {
   const cur = L.SCALES[S.budget];
-  return `<p class="seglabel"><span>予算規模</span><span class="num">費用×${cur.cost}・効果×${cur.eff}</span></p><div class="seg" role="group" aria-label="予算規模">${L.SCALES.map((x, i) => `<button data-scale="${i}" aria-pressed="${S.budget === i}">${x.label}</button>`).join('')}</div>`;
+  return `<div class="budget"><span class="lbl">予算<small class="num">費用×${cur.cost}・効果×${cur.eff}</small></span><div class="seg" role="group" aria-label="予算規模">${L.SCALES.map((x, i) => `<button data-scale="${i}" aria-pressed="${S.budget === i}">${x.label}</button>`).join('')}</div></div>`;
 }
 function runCmd(k) {
   if (!S || S.over) return;
@@ -399,6 +441,7 @@ function battleOpts(c) {
   };
 }
 function finishMonth() {
+  detailOpen = false;
   const before = {}; for (const c in S.m) before[c] = S.m[c].owner;
   const res = L.endTurn(S, ADJ, NAMES);
   const d = L.dateOf(S.turn);
@@ -865,11 +908,8 @@ function startNew(code) {
 function afterLoad() {
   L.ensureStaff(S); L.ensureAdv(S);
   sel = null; seenLog = S.log.length; closeOverlay(); render();
-  // 圏域制覇では目標の圏域に寄せて始める
-  const r = S.mode === 'region' ? S.goal : '全県', pad = r === '全県' ? 14 : 30;
-  const b = bboxOf(r === '全県' ? Object.keys(NAMES) : L.regionCodes(r));
-  vb = fitBox(b, pad); setVB(); lastBox = { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 };
-  for (const x of $('chips').children) x.setAttribute('aria-pressed', x.dataset.r === r ? 'true' : 'false');
+  // 本拠地のまわりに大きく寄せて始める。隣の市町村をそのままタップできる
+  zoomRegion('自陣', true);
 }
 
 $('endBtn').onclick = endMonth;
