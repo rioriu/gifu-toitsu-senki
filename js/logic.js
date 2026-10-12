@@ -126,6 +126,9 @@
       cands = cands.filter(c => INFO[c][0] !== st.goal);
       extra = extra.filter(c => INFO[c][0] !== st.goal);
     }
+    // 1つは、ちょうど RIVAL_GAP の距離の都市に置く（遠い相手ばかりだと張り合いがない）
+    const first = [...cands, ...extra].find(c => hop[c] === RIVAL_GAP && free(c, RIVAL_GAP));
+    if (first && rivals.length < 3 && !rivals.some(r => hop[r] === RIVAL_GAP)) rivals.push(first);
     for (const [gap, list] of [[RIVAL_GAP, cands], [RIVAL_GAP, extra], [2, cands]]) {
       for (const c of list) {
         if (rivals.length >= 3) break;
