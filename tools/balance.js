@@ -4,6 +4,8 @@
 //
 // 使い方: node tools/balance.js [回数] [市町村コード...] [--mode=unify|region|both] [--years=20] [--set=名前=値,...]
 //   例: node tools/balance.js 100 21507 --mode=region
+//   --labels：42市町村すべてを両方の遊び方で測り（CPUの数だけ並列）、難易度の表を logic.js の DIFFICULTY の形で出す
+//     例: node tools/balance.js 60 --labels
 //   --set は logic.js の定数をその場だけ差し替えて試す（例: --set=AI_IDLE=0.25,AI_GUARD=0）
 //   市町村を省くと、タイトル画面のおすすめ（難易度ごと）を全部測る
 'use strict';
@@ -29,7 +31,15 @@ const MAP = ctx.MAP;
 const NAMES = {}, ADJ = {};
 for (const m of MAP.muni) { NAMES[m.code] = m.name; ADJ[m.code] = m.adj; }
 // タイトル画面のおすすめと同じ
-const PICKS = ['21201', '21202', '21205', '21204', '21203', '21361', '21505', '21604', '21507'];
+const PICKS = ['21201', '21202', '21203', '21205', '21204', '21604', '21505', '21401', '21507', '21521'];
+// 難易度の分け方。勝率は圏域制覇と県内統一の平均、期間は県内統一で勝つまでの中央値
+const LABEL_RULE = { hard2: 65, hard: 95, easy: 99, easyMonths: 66 };
+function labelOf(avg, unifyT) {
+  if (avg < LABEL_RULE.hard2) return '超むずかしい';
+  if (avg < LABEL_RULE.hard) return 'むずかしい';
+  if (avg >= LABEL_RULE.easy && unifyT && unifyT <= LABEL_RULE.easyMonths) return 'やさしい';
+  return 'ふつう';
+}
 
 // ---------- ボット ----------
 // 住民投票の賛成率の見込み（乱数の分を除く）
@@ -167,6 +177,41 @@ function measure(code, mode, n, months) {
   return r;
 }
 
+// 42市町村×2つの遊び方を、子プロセスで並列に測って難易度の表を出す
+function labels(n, months) {
+  const { execFile } = require('child_process');
+  const jobs = [];
+  for (const c of Object.keys(L.INFO)) for (const m of ['region', 'unify']) jobs.push([c, m]);
+  const out = {}, setArg = SET.length ? [`--set=${SET.map(kv => kv.join('=')).join(',')}`] : [];
+  let next = 0, done = 0;
+  const work = () => {
+    if (next >= jobs.length) return;
+    const [c, m] = jobs[next++];
+    execFile(process.execPath, [__filename, String(n), c, `--mode=${m}`, `--years=${months / 12}`, '--json', ...setArg], { maxBuffer: 1 << 20 }, (err, stdout) => {
+      if (err) throw err;
+      (out[c] = out[c] || {})[m] = JSON.parse(stdout);
+      process.stderr.write(`\r${++done}/${jobs.length}`);
+      if (done === jobs.length) report(); else work();
+    });
+  };
+  const report = () => {
+    process.stderr.write('\n');
+    const rows = Object.keys(out).map(c => {
+      const r = out[c].region, u = out[c].unify, avg = (r.win + u.win) / 2 / n * 100;
+      return { c, avg, r: r.win / n * 100, u: u.win / n * 100, rT: median(r.winT), uT: median(u.winT), label: labelOf(avg, median(u.winT)) };
+    }).sort((a, b) => b.avg - a.avg || (a.uT || 999) - (b.uT || 999));
+    console.log(`各${n}回・最長${months / 12}年。勝率は圏域制覇と県内統一の平均`);
+    console.log('| 市町村 | 今の難易度 | 新しい難易度 | 勝率（平均） | 圏域制覇 | 県内統一 |');
+    console.log('| --- | --- | --- | --- | --- | --- |');
+    for (const x of rows) console.log(`| ${NAMES[x.c]} | ${L.difficultyOf(x.c)} | ${x.label} | ${Math.round(x.avg)}% | ${Math.round(x.r)}%・${x.rT || '-'}か月 | ${Math.round(x.u)}%・${x.uT || '-'}か月 |`);
+    const by = {};
+    for (const x of rows) (by[x.label] = by[x.label] || []).push(x.c);
+    console.log('\n// logic.js の DIFFICULTY に貼る');
+    for (const lv of ['やさしい', 'ふつう', 'むずかしい', '超むずかしい']) console.log(`    ${lv}: [${(by[lv] || []).sort().map(c => `'${c}'`).join(', ')}],`);
+  };
+  for (let i = 0; i < require('os').cpus().length; i++) work();
+}
+
 function main() {
   const args = process.argv.slice(2);
   const opt = k => { const a = args.find(x => x.startsWith(`--${k}=`)); return a ? a.split('=')[1] : null; };
@@ -175,6 +220,8 @@ function main() {
   const codes = nums.length ? nums : PICKS;
   const modes = (opt('mode') || 'both') === 'both' ? ['region', 'unify'] : [opt('mode')];
   const months = Number(opt('years') || 20) * 12;
+  if (args.includes('--labels')) return labels(n, months);
+  if (args.includes('--json')) { console.log(JSON.stringify(measure(codes[0], modes[0], n, months))); return; }
   if (SET.length) console.log(`差し替え：${SET.map(kv => kv.join('=')).join('、')}`);
   console.log(`各${n}回・最長${months / 12}年。勝ち＝${modes.map(m => L.MODES[m].label).join('／')}の達成`);
   console.log('| スタート | 難易度 | 遊び方 | 勝ち | 勝つまで（中央値） | 負け | 決着つかず | 最大の市町村数（中央値） |');
