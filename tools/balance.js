@@ -33,7 +33,7 @@ for (const m of MAP.muni) { NAMES[m.code] = m.name; ADJ[m.code] = m.adj; }
 // タイトル画面のおすすめと同じ
 const PICKS = ['21201', '21202', '21205', '21203', '21204', '21604', '21505', '21381', '21507', '21521'];
 // 難易度の分け方。勝率は圏域制覇と県内統一の平均、期間は県内統一で勝つまでの中央値
-const LABEL_RULE = { hard2: 65, hard: 95, easy: 99, easyMonths: 66 };
+const LABEL_RULE = { hard2: 65, hard: 98, easy: 99, easyMonths: 66 };
 function labelOf(avg, unifyT) {
   if (avg < LABEL_RULE.hard2) return '超むずかしい';
   if (avg < LABEL_RULE.hard) return 'むずかしい';
