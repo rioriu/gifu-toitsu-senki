@@ -31,7 +31,7 @@ const MAP = ctx.MAP;
 const NAMES = {}, ADJ = {};
 for (const m of MAP.muni) { NAMES[m.code] = m.name; ADJ[m.code] = m.adj; }
 // タイトル画面のおすすめと同じ
-const PICKS = ['21201', '21202', '21203', '21205', '21204', '21604', '21505', '21401', '21507', '21521'];
+const PICKS = ['21201', '21202', '21203', '21205', '21204', '21604', '21505', '21401', '21507', '21403'];
 // 難易度の分け方。勝率は圏域制覇と県内統一の平均、期間は県内統一で勝つまでの中央値
 const LABEL_RULE = { hard2: 65, hard: 95, easy: 99, easyMonths: 66 };
 function labelOf(avg, unifyT) {
@@ -61,8 +61,10 @@ function botTurn(st, f) {
     let need = 0;
     for (const c of Object.keys(st.m)) {
       if (st.m[c].owner === f || !L.adjacentTo(st, ADJ, c, f)) continue;
-      const r = L.canDo(st, ADJ, f, 'talk', c, 99);
-      if (!r.ok && r.reason.startsWith('財源') && expYes(st, f, c) >= (st.m[c].owner === -1 ? 52 : 56)) need = need ? Math.min(need, L.cmdCost(st, 'talk', c, undefined, f)) : L.cmdCost(st, 'talk', c, undefined, f);
+      // お金が費用に届かないときだけでなく、費用は払えても蓄えが残らないときも貯める
+      const r = L.canDo(st, ADJ, f, 'talk', c, 99), cost = L.cmdCost(st, 'talk', c, undefined, f);
+      const short = r.ok ? me.money - cost < reserve() : r.reason.startsWith('財源');
+      if (short && expYes(st, f, c) >= (st.m[c].owner === -1 ? 52 : 56)) need = need ? Math.min(need, cost) : cost;
     }
     return need;
   };
@@ -85,6 +87,11 @@ function botTurn(st, f) {
     if (p && net() > 2 && L.canHire(st, ADJ, f, p.id, st.ap).ok && me.money - L.hireCost(p) > reserve() + saving() + 10) { L.hire(st, NAMES, f, p.id); st.ap--; }
   }
   L.autoAssign(st, f);
+  // 赤字なら、給与の高い人から役職を外す
+  for (const p of L.staffOf(st, f).filter(p => p.role).sort((a, b) => L.GRADE_PAY[L.gradeOf(b)] - L.GRADE_PAY[L.gradeOf(a)])) {
+    if (net() >= 0) break;
+    L.assignRole(st, f, p.id, null);
+  }
   // 偉人：招けるなら招く
   if (st.ap > 0) {
     const a = L.ADVISORS.find(a => L.canInviteAdv(st, f, a.id, st.ap).ok && me.money - a.cost > reserve() + saving() + 10);
@@ -114,7 +121,7 @@ function botTurn(st, f) {
     if (site && st.lure.left === 1) {
       const best = Math.max(-1, ...L.lureParts(st, ADJ).filter(k => k !== f).map(k => L.lureScore(st, ADJ, k)));
       const cap = Math.floor(st.lure.inc * 20 / st.lure.step);
-      if (L.lureScore(st, ADJ, f) <= best + 8 && L.lureBid(st, f) < cap && act('lure', site)) continue;
+      if (L.lureScore(st, ADJ, f) <= best + 8 && L.lureBid(st, f) < cap && act('lure', site, false, true)) continue;
     }
     // 5. 合併協議：賛成の見込みが十分な相手に申し入れる（人口の多い順）
     const near = Object.keys(st.m).filter(c => st.m[c].owner !== f && L.adjacentTo(st, ADJ, c, f));
