@@ -363,11 +363,42 @@ function runCmd(k) {
 }
 
 // ---------- 月を終える ----------
-let queue = [];
+let queue = [], inBattle = false;
 function endMonth() {
   if (!S || S.over) return;
   if (!$('overlay').hidden) return;
-  if (replay) return;
+  if (replay || inBattle) return;
+  // 見込み30〜70％の住民投票は、月を終える前に決戦で決める
+  const due = prefs.battle === false ? [] : L.battlesDue(S);
+  if (due.length) { runBattles(due); return; }
+  finishMonth();
+}
+function runBattles(list) {
+  const c = list.shift();
+  if (!c) { inBattle = false; finishMonth(); return; }
+  inBattle = true;
+  Battle.start(battleOpts(c), r => { if (r) { L.setBattle(S, c, r); save(); } runBattles(list); });
+}
+// 決戦に渡すもの：市町村の形、いまの見込み、自陣営のある向き、技になる人材と偉人
+function battleOpts(c) {
+  const m = BYCODE[c];
+  const mine = ADJ[c].filter(k => S.m[k].owner === 0).map(k => BYCODE[k]);
+  let dx = 0, dy = 0;
+  for (const k of mine) { dx += k.lx - m.lx; dy += k.ly - m.ly; }
+  const len = Math.hypot(dx, dy) || 1;
+  // 人材は役職に就いている人を先に3人まで。いちばん高い能力で技が決まる
+  const staff = L.staffOf(S, 0).slice().sort((a, b) => (b.role ? 1 : 0) - (a.role ? 1 : 0)).map(p => {
+    const best = Object.keys(L.ABIL).reduce((a, b) => (L.abil(S, 0, p, b) > L.abil(S, 0, p, a) ? b : a));
+    return { name: p.name, best, val: L.abil(S, 0, p, best) };
+  });
+  const a = L.advOf(S, 0).map(x => L.ADV_BY_ID[x.id]).find(x => x);
+  return {
+    code: c, name: NAMES[c], d: m.d, lx: m.lx, ly: m.ly, pop: S.m[c].pop, expect: L.battleExpect(S, c),
+    dir: { x: dx / len, y: dy / len }, mine: NAMES[S.factions[0].capital], mineFac: S.factions[0].name,
+    staff, adv: a ? { name: a.name, say: a.say } : null
+  };
+}
+function finishMonth() {
   const before = {}; for (const c in S.m) before[c] = S.m[c].owner;
   const res = L.endTurn(S, ADJ, NAMES);
   const d = L.dateOf(S.turn);
@@ -379,7 +410,8 @@ function endMonth() {
     startReplay(steps, before, () => { toast(summary); queue = S.over ? [() => showOver()] : []; next(); });
   } else {
     render(); toast(summary);
-    queue = [...res.votes.map(v => () => showVote(v, next)), ...res.lures.map(s => () => showLure(s, next)), ...res.joins.map(s => () => showJoin(s, next))];
+    // 決戦で決めた住民投票は、決戦の開票で見せたので出さない
+    queue = [...res.votes.filter(v => !v.battle).map(v => () => showVote(v, next)), ...res.lures.map(s => () => showLure(s, next)), ...res.joins.map(s => () => showJoin(s, next))];
     if (S.over) queue.push(() => showOver());
     next();
   }
@@ -448,7 +480,7 @@ function playStep() {
   if (s.kind === 'vote' && s.pass) setTimeout(() => { if (replay) { replay.owners[s.code] = s.f; paintMap(); } }, 500);
   if (s.kind === 'join') setTimeout(() => { if (replay) { for (const c of s.towns) replay.owners[c] = s.f; paintMap(); } }, 500);
   paintMap();
-  const mineVote = s.kind === 'vote' && (s.f === 0 || s.prev === 0 || (s.contest && s.contest.loser === 0));
+  const mineVote = s.kind === 'vote' && !s.battle && (s.f === 0 || s.prev === 0 || (s.contest && s.contest.loser === 0));
   if (mineVote) replayTimer = setTimeout(() => showVote(s, () => { closeOverlay(); advance(); }), 900);
   else if (s.kind === 'lure' && s.mine) replayTimer = setTimeout(() => showLure(s, () => { closeOverlay(); advance(); }), 900);
   else if (s.kind === 'join' && s.mine) replayTimer = setTimeout(() => showJoin(s, () => { closeOverlay(); advance(); }), 900);
@@ -460,7 +492,7 @@ function endReplay() {
   if (!replay) return;
   const { done, home } = replay;
   // 飛ばした分の自分に関わる住民投票は、結果だけ順に見せる
-  const rest = replay.steps.slice(replay.i + 1).filter(s => (s.kind === 'vote' && (s.f === 0 || s.prev === 0)) || ((s.kind === 'lure' || s.kind === 'join') && s.mine));
+  const rest = replay.steps.slice(replay.i + 1).filter(s => (s.kind === 'vote' && !s.battle && (s.f === 0 || s.prev === 0)) || ((s.kind === 'lure' || s.kind === 'join') && s.mine));
   replay = null;
   $('pulse').textContent = ''; $('replay').hidden = true; $('chips').hidden = false; $('endBtn').disabled = false;
   animateTo(home); render();
@@ -673,12 +705,14 @@ function showMenu() {
   openOverlay(`<button class="iconbtn close" id="xBtn" aria-label="閉じる">✕</button><h3>メニュー</h3>
     <p class="sub">進み具合はこのブラウザに自動で保存されます。</p>
     <label class="toggle"><input type="checkbox" id="rpToggle" ${prefs.replay ? 'checked' : ''}>月を終えたあと、相手の動きを地図で見せる</label>
+    <label class="toggle"><input type="checkbox" id="btToggle" ${prefs.battle !== false ? 'checked' : ''}>見込み${L.BATTLE_MIN}〜${L.BATTLE_MAX}％の住民投票を決戦で決める（外すと今までの計算で決まる）</label>
     <ul class="howto">${HOWTO}</ul>
     ${S.over ? `<div class="row"><button class="btn main" id="overBtn">${S.over.win && S.over.region ? '圏域制覇の結果（続けて遊ぶ）' : '結果を見る'}</button></div>` : ''}
     <div class="row"><button class="btn danger" id="resetBtn">最初からやり直す</button></div><div id="confirmBox"></div>`);
   $('xBtn').onclick = closeOverlay;
   if ($('overBtn')) $('overBtn').onclick = showOver;
   $('rpToggle').onchange = e => { prefs.replay = e.target.checked; savePrefs(); };
+  $('btToggle').onchange = e => { prefs.battle = e.target.checked; savePrefs(); };
   $('resetBtn').onclick = () => {
     $('confirmBox').innerHTML = `<p style="margin:12px 0 0">今の進み具合は消えます。やり直しますか？</p><div class="row"><button class="btn danger" id="yesReset">やり直す</button><button class="btn" id="noReset">やめる</button></div>`;
     $('yesReset').onclick = () => { clearSave(); showTitle(); };
@@ -688,6 +722,7 @@ function showMenu() {
 const HOWTO = `<li><b>交流事業</b>で隣の市町村との関係度を上げる</li>
   <li>関係度50で<b>連携協定</b>（収入の一部が入る）、70で<b>合併協議</b></li>
   <li>協議の3か月後に<b>住民投票</b>。満足度が高いほど賛成が増える</li>
+  <li><b>住民投票の決戦</b>：賛成の見込みが${L.BATTLE_MIN}〜${L.BATTLE_MAX}％の住民投票は、月を終える前に90秒の陣取りで決める。地区から隣の地区へなぞって運動員を送り、押さえた地区ほど賛成が高くなる。人材が技になる。「おまかせ」で今までの計算にもできる</li>
   <li>ライバルの市町村は、相手の満足度が低いか、こちらの平均満足度が8以上高いと切り崩せる</li>
   <li>ほかの陣営が協議中の市町村には<b>対抗提案</b>で割り込める。<b>条件を上乗せ</b>した段数が多いほど選ばれやすい</li>
   <li><b>人材</b>を登用して役職（副市長・企画課長・交渉担当・観光大使）に就けると、税収や内政、住民投票に効く。合併するとその市町村ゆかりの人材が加わる</li>

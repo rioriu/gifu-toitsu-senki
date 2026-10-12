@@ -977,6 +977,29 @@
     return { yes: y, no: cast - y, turnout, pass: y > cast - y };
   }
 
+  // 住民投票の決戦：見込みが30〜70％の自陣営の住民投票は、月を終える前に画面の陣取りで決める
+  // （ボットで測ると圏域制覇で約10回・県内統一で約22回。80％まで広げるとほぼ毎回になる）
+  // 決戦の結果は協議に書いておき、月末の住民投票は乱数の代わりにそれを使う。書いていなければ今まで通り（おまかせ・ボット）
+  const BATTLE_MIN = 30, BATTLE_MAX = 70;
+  function battleExpect(st, code) {
+    const x = st.m[code], t = x.talk;
+    const keep = x.owner >= 0 && x.owner !== 0 ? (t.keep || 0) : 0;
+    return voteExpect(st, 0, code, -keep * KEEP_STEP);
+  }
+  // この月末に住民投票になる自陣営の協議のうち、決戦にするもの（競り合いは除く）
+  function battlesDue(st) {
+    return Object.keys(st.m).filter(c => {
+      const t = st.m[c].talk;
+      if (!t || t.f !== 0 || t.left !== 1 || t.rival !== undefined || t.battle) return false;
+      const e = battleExpect(st, c);
+      return e >= BATTLE_MIN && e <= BATTLE_MAX;
+    });
+  }
+  function setBattle(st, code, r) {
+    const t = st.m[code].talk;
+    if (t && t.f === 0) t.battle = { yes: r.yes, no: r.no, turnout: r.turnout };
+  }
+
   // 月を終える
   function endTurn(st, adj, names) {
     const res = { votes: [], news: [], steps: [], lures: [], joins: [] };
@@ -1012,7 +1035,8 @@
         res.steps.push({ kind: 'contest', code: c, ...contest, f: win });
       }
       const keep = x.owner >= 0 && x.owner !== f ? (t.keep || 0) : 0;
-      const v = voteFor(st, f, c, (contest ? contest.bids[f] * 3 : 0) - keep * KEEP_STEP);
+      const b = !contest && f === 0 ? t.battle : null;
+      const v = b ? { yes: b.yes, no: b.no, turnout: b.turnout, pass: b.yes > b.no, battle: true } : voteFor(st, f, c, (contest ? contest.bids[f] * 3 : 0) - keep * KEEP_STEP);
       if (contest) v.contest = contest;
       if (keep) v.keep = keep;
       const prev = x.owner;
@@ -1165,7 +1189,7 @@
     }
   }
 
-  const api = { JOIN_TOWNS, JOIN_RATIO, JOIN_SAT, AI_GUARD, voteExpect, AI_IDLE, FIRMS, LURE_MONTHS, LURE_PT, LURE_MAX, firmInc, sitePoint, lureSite, lureBid, lureScore, lureParts, lureRows, ADVISORS, ADV_BY_ID, ADV_MONTHS, ADV_COOL, ADV_SLOT2, ensureAdv, advCond, advMeasure, advOf, advFx, advBonus, advMax, advUsed, advHolder, canInviteAdv, inviteAdv, advise, advVote, regionLength, talksMax, APPEAL_TALKS, appeal, appealOf, appealRel, appealVote, INFO, REGIONS, MODES, regionCodes, goalOf, continueToUnify, CMDS, dateOf, difficultyOf, newGame, owned, apMax, totalPop, avgSat, incomeOf,
+  const api = { BATTLE_MIN, BATTLE_MAX, battleExpect, battlesDue, setBattle, JOIN_TOWNS, JOIN_RATIO, JOIN_SAT, AI_GUARD, voteExpect, AI_IDLE, FIRMS, LURE_MONTHS, LURE_PT, LURE_MAX, firmInc, sitePoint, lureSite, lureBid, lureScore, lureParts, lureRows, ADVISORS, ADV_BY_ID, ADV_MONTHS, ADV_COOL, ADV_SLOT2, ensureAdv, advCond, advMeasure, advOf, advFx, advBonus, advMax, advUsed, advHolder, canInviteAdv, inviteAdv, advise, advVote, regionLength, talksMax, APPEAL_TALKS, appeal, appealOf, appealRel, appealVote, INFO, REGIONS, MODES, regionCodes, goalOf, continueToUnify, CMDS, dateOf, difficultyOf, newGame, owned, apMax, totalPop, avgSat, incomeOf,
     factionIncome, grantOf, tagInfo, upkeep, cmdCost, cmdEffect, SCALES, SCALABLE, gradeOf, GRADE_PAY, SCOUT, canScout, scout, ROLES, ABIL, ensureStaff, staffOf, staffMax, abil, roleVal, hireCandidates, hireCost, canHire, hire, assignRole, autoAssign, staffUpkeep, aiStaff, inTalk, BID_MAX, KEEP_MAX, KEEP_STEP, canDo, doCmd, endTurn, adjacentTo, talksOf, seasonX, clamp };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.GameLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);
