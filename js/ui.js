@@ -697,29 +697,55 @@ function showStartDetail(c) {
   $('backBtn').onclick = showTitle;
   $('goBtn').onclick = () => startNew(c);
 }
+// 市町村のボタン。圏域で選ぶときは圏域の代わりに難易度を添える
+// 畳んだ中のリストは数が多いので、2列に収まる短い書き方にする
+function startBtn(c, by, compact) {
+  const pv = startPreview(c), info = L.INFO[c], head = by === 'region' ? L.difficultyOf(c) : info[0];
+  if (compact) return `<button data-start="${c}">${NAMES[c]}<small>${head}・${info[1]}千人${info[2] ? '・' + info[2] : ''}</small><span class="money num">財源${pv.money}億・月${signed(pv.net)}億</span></button>`;
+  return `<button data-start="${c}">${NAMES[c]}<small>${head}・人口${info[1]}千人${info[2] ? '・' + info[2] : ''}</small><span class="money num">財源 ${pv.money}億円・月収支 ${signed(pv.net)}億円</span></button>`;
+}
+const pickBy = () => prefs.pickBy === 'region' ? 'region' : 'level';
+// 難易度ごと：おすすめを並べ、残りは「その他の市町村」に畳む。圏域ごと：圏域ごとに畳む
+function pickListHtml() {
+  const byPop = cs => cs.sort((a, b) => L.INFO[b][1] - L.INFO[a][1]);
+  if (pickBy() === 'region') return L.REGIONS.map(r => {
+    const cs = byPop(L.regionCodes(r));
+    return `<details class="more"><summary><b>${r}圏域</b>（${cs.length}市町村・圏域制覇は${L.regionLength(r)}）</summary><div class="opts compact">${cs.map(c => startBtn(c, 'region', true)).join('')}</div></details>`;
+  }).join('');
+  return PICKS.map(([lv, cs]) => {
+    const rest = byPop(Object.keys(NAMES).filter(c => L.difficultyOf(c) === lv && !cs.includes(c)));
+    return `<div><h4>${lv}</h4><div class="opts">${cs.map(c => startBtn(c)).join('')}</div>
+      ${rest.length ? `<details class="more"><summary>その他の市町村（${rest.length}）</summary><div class="opts compact">${rest.map(c => startBtn(c, 'level', true)).join('')}</div></details>` : ''}</div>`;
+  }).join('');
+}
+function bindPickList() {
+  for (const b of document.querySelectorAll('[data-start]')) b.onclick = () => showStartDetail(b.dataset.start);
+}
 function showTitle() {
   const saved = loadSaved();
   // 圏域制覇を達成したセーブは、県内統一へ続けられるように残す
   const canCont = saved && (!saved.over || (saved.over.win && saved.over.region));
-  const groups = PICKS.map(([lv, cs]) => `<div><h4>${lv}</h4><div class="opts">${cs.map(c => `<button data-start="${c}">${NAMES[c]}<small>${L.INFO[c][0]}・人口${L.INFO[c][1]}千人${L.INFO[c][2] ? '・' + L.INFO[c][2] : ''}</small><span class="money num">財源 ${startPreview(c).money}億円・月収支 ${signed(startPreview(c).net)}億円</span></button>`).join('')}</div></div>`).join('');
-  const opts = L.REGIONS.map(r => `<optgroup label="${r}圏域">${Object.keys(NAMES).filter(c => L.INFO[c][0] === r).map(c => `<option value="${c}">${NAMES[c]}（${L.difficultyOf(c)}・財源${startPreview(c).money}億・月${signed(startPreview(c).net)}億）</option>`).join('')}</optgroup>`).join('');
+  const tabs = [['level', '難易度で選ぶ'], ['region', '圏域で選ぶ']].map(([k, lb]) => `<button data-by="${k}" aria-pressed="${pickBy() === k}">${lb}</button>`).join('');
   openOverlay(`<div class="kicker">令和8年4月　岐阜県・21市19町2村</div>
     <div class="logo">岐阜<em>統一</em>戦記</div>
     <p class="lead">あなたは岐阜県のある市町村の首長。交流と協定で信頼を集め、住民投票で合併を重ね、42市町村をひとつにまとめてください。</p>
     ${canCont ? `<div class="row" style="margin:0 0 18px"><button class="btn main" id="contBtn">つづきから（${L.dateOf(saved.turn).label}・${saved.factions[0] ? NAMES[saved.factions[0].capital] : ''}・${saved.over ? saved.goal + '圏域を制覇済み' : saved.mode === 'region' ? saved.goal + '圏域制覇' : '県内統一'}）</button></div>` : ''}
-    <div class="pick">${modeHtml()}<div><h4>首長になる市町村を選ぶ</h4><p class="sub" style="margin:0">タップすると特産や最初の人材などの詳細が見られます。月収支は最初の月（4月）の収入から維持費と給与を引いた額で、季節や内政で変わります。</p></div>${groups}
-    <div><h4>ほかの市町村から選ぶ</h4><div class="selrow"><select id="startSel" aria-label="開始する市町村">${opts}</select><button class="btn" id="selStart">詳細を見る</button></div><p class="sub num" id="selPreview" style="margin:8px 0 0"></p></div></div>
+    <div class="pick">${modeHtml()}<div><h4>首長になる市町村を選ぶ</h4><p class="sub" style="margin:0 0 10px">タップすると特産や最初の人材などの詳細が見られます。月収支は最初の月（4月）の収入から維持費と給与を引いた額で、季節や内政で変わります。</p><div class="segs" role="group" aria-label="市町村の並べ方">${tabs}</div></div>
+    <div class="pick" id="pickList">${pickListHtml()}</div></div>
     <ul class="howto">${HOWTO}</ul>
     <p class="sub" style="margin-top:14px">人口は統計を丸めた概数、そのほかの数値はゲーム用です。登場する陣営・人材・出来事は架空です（偉人アドバイザーは岐阜ゆかりの歴史人物）。地図：国土数値情報（行政区域データ）を加工</p>`, 'title-panel');
-  if (lastPick) { const el = document.querySelector(`[data-start="${lastPick}"]`); if (el) el.scrollIntoView({ block: 'center' }); else if ($('startSel')) { $('startSel').value = lastPick; } }
-  for (const b of document.querySelectorAll('[data-start]')) b.onclick = () => showStartDetail(b.dataset.start);
+  bindPickList();
+  // 詳細から戻ったら、選んでいた市町村が見えるように畳みを開く
+  if (lastPick) { const el = document.querySelector(`[data-start="${lastPick}"]`); if (el) { const d = el.closest('details'); if (d) d.open = true; el.scrollIntoView({ block: 'center' }); } }
   for (const b of document.querySelectorAll('[data-mode]')) b.onclick = () => {
     prefs.mode = b.dataset.mode; savePrefs();
     for (const x of document.querySelectorAll('[data-mode]')) x.setAttribute('aria-pressed', x === b ? 'true' : 'false');
   };
-  $('selStart').onclick = () => showStartDetail($('startSel').value);
-  const showPrev = () => { const c = $('startSel').value, pv = startPreview(c); $('selPreview').textContent = `${NAMES[c]}：人口${L.INFO[c][1]}千人・開始時の財源 ${pv.money}億円・月収支 ${signed(pv.net)}億円（4月時点）`; };
-  $('startSel').onchange = showPrev; showPrev();
+  for (const b of document.querySelectorAll('[data-by]')) b.onclick = () => {
+    prefs.pickBy = b.dataset.by; savePrefs();
+    for (const x of document.querySelectorAll('[data-by]')) x.setAttribute('aria-pressed', x === b ? 'true' : 'false');
+    $('pickList').innerHTML = pickListHtml(); bindPickList();
+  };
   if ($('contBtn')) $('contBtn').onclick = () => { S = saved; afterLoad(); if (S.over) showOver(); };
 }
 function startNew(code) {
