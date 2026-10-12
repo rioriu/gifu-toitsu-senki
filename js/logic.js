@@ -384,25 +384,56 @@
     sat: v => `自陣営の満足度が毎月 +${v}`,
     rel: v => `隣り合う市町村との関係度が毎月 +${v}`
   };
+  // cond: [何を数えるか, 必要な値, 説明]。ゆかりの地を持ち、この条件を一度満たすと招ける
   // seki: 関ケ原の偉人。招くことはできず、毎年9月に関ケ原町を持つ陣営に訪れる
   const ADVISORS = [
-    { id: 'dosan', name: '斎藤道三', home: '21215', title: '美濃の蝮', fx: 'steal', v: 10, cost: 30, say: '国は待っていても手に入らぬ。隙を見せた町から切り取れ' },
-    { id: 'nobunaga', name: '織田信長', home: '21201', title: '楽市楽座', fx: 'tax', v: 15, cost: 35, say: '古い決まりはいらぬ。市を開けば銭はおのずと集まる' },
-    { id: 'hanbei', name: '竹中半兵衛', home: '21361', title: '今孔明', fx: 'vote', v: 8, cost: 20, say: '戦わずに勝つには、先に住民の心を得ることです' },
-    { id: 'mitsuhide', name: '明智光秀', home: '21214', title: '文武の才', fx: 'plan', v: 3, cost: 25, say: '政も戦も、段取りが八割にございます' },
-    { id: 'nagachika', name: '金森長近', home: '21203', title: '高山の町割り', fx: 'tourInc', v: 25, cost: 25, say: '町並みを整えれば、人は遠くからでも訪ねてくる' },
-    { id: 'basho', name: '松尾芭蕉', home: '21202', title: 'むすびの地', fx: 'tour', v: 5, cost: 20, say: '旅人の心に残る景色を、ひとつ磨きなされ' },
-    { id: 'oribe', name: '古田織部', home: '21218', title: '織部好み', fx: 'ind', v: 4, cost: 20, say: 'ゆがみもまた味わい。ものづくりに遊び心を' },
-    { id: 'toson', name: '島崎藤村', home: '21206', title: '夜明け前', fx: 'care', v: 5, cost: 20, say: '子らが学べる町にこそ、夜明けは来る' },
-    { id: 'enku', name: '円空', home: '21209', title: '旅の仏師', fx: 'sat', v: 1, cost: 20, say: '一刀ごとに、人の心を彫るのです' },
-    { id: 'chiune', name: '杉原千畝', home: '21505', title: '命のビザ', fx: 'visit', v: 8, cost: 15, say: '扉は閉ざすより、開くほうが道は広がります' },
-    { id: 'chiyo', name: '千代', home: '21219', title: '内助の功', fx: 'cost', v: 20, cost: 15, say: '蓄えは、いざというときのために。むだを省きましょう' },
+    { id: 'dosan', name: '斎藤道三', home: '21215', title: '美濃の蝮', fx: 'steal', v: 10, cost: 30, cond: ['steal', 1, 'ほかの陣営の市町村を1つ切り崩す'], say: '国は待っていても手に入らぬ。隙を見せた町から切り取れ' },
+    { id: 'nobunaga', name: '織田信長', home: '21201', title: '楽市楽座', fx: 'tax', v: 15, cost: 35, cond: ['towns', 8, '市町村を8つにする'], say: '古い決まりはいらぬ。市を開けば銭はおのずと集まる' },
+    { id: 'hanbei', name: '竹中半兵衛', home: '21361', title: '今孔明', fx: 'vote', v: 8, cost: 20, cond: ['merge', 1, '住民投票で合併を1回可決させる'], say: '戦わずに勝つには、先に住民の心を得ることです' },
+    { id: 'mitsuhide', name: '明智光秀', home: '21214', title: '文武の才', fx: 'plan', v: 3, cost: 25, cond: ['roles', 4, '4つの役職をすべて埋める'], say: '政も戦も、段取りが八割にございます' },
+    { id: 'nagachika', name: '金森長近', home: '21203', title: '高山の町割り', fx: 'tourInc', v: 25, cost: 25, cond: ['maxTour', 70, '観光力70の市町村を持つ'], say: '町並みを整えれば、人は遠くからでも訪ねてくる' },
+    { id: 'basho', name: '松尾芭蕉', home: '21202', title: 'むすびの地', fx: 'tour', v: 5, cost: 20, cond: ['tour60', 2, '観光力60以上の市町村を2つ持つ'], say: '旅人の心に残る景色を、ひとつ磨きなされ' },
+    { id: 'oribe', name: '古田織部', home: '21218', title: '織部好み', fx: 'ind', v: 4, cost: 20, cond: ['maxInd', 70, '産業力70の市町村を持つ'], say: 'ゆがみもまた味わい。ものづくりに遊び心を' },
+    { id: 'toson', name: '島崎藤村', home: '21206', title: '夜明け前', fx: 'care', v: 5, cost: 20, cond: ['sat', 65, '平均満足度を65にする'], say: '子らが学べる町にこそ、夜明けは来る' },
+    { id: 'enku', name: '円空', home: '21209', title: '旅の仏師', fx: 'sat', v: 1, cost: 20, cond: ['towns', 5, '市町村を5つにする'], say: '一刀ごとに、人の心を彫るのです' },
+    { id: 'chiune', name: '杉原千畝', home: '21505', title: '命のビザ', fx: 'visit', v: 8, cost: 15, cond: ['pact', 3, '連携協定を3回結ぶ'], say: '扉は閉ざすより、開くほうが道は広がります' },
+    { id: 'chiyo', name: '千代', home: '21219', title: '内助の功', fx: 'cost', v: 20, cost: 15, cond: ['money', 100, '財源を100億円貯める'], say: '蓄えは、いざというときのために。むだを省きましょう' },
     { id: 'ieyasu', name: '徳川家康', home: ADV_SEKI, title: '天下分け目', fx: 'ap', v: 1, seki: true, say: '勝負は一日で決まる。動ける手を増やしておけ' },
     { id: 'mitsunari', name: '石田三成', home: ADV_SEKI, title: '五奉行の才', fx: 'cash', v: 5, seki: true, say: '帳簿を整えれば、財はおのずと増えまする' },
     { id: 'yoshitsugu', name: '大谷吉継', home: ADV_SEKI, title: '友との義', fx: 'rel', v: 2, seki: true, say: '信義を重ねれば、隣人はおのずと味方になる' }
   ];
   const ADV_BY_ID = {}; for (const a of ADVISORS) ADV_BY_ID[a.id] = a;
-  function ensureAdv(st) { if (!st.adv) st.adv = st.factions.map(() => []); if (!st.advCool) st.advCool = {}; }
+  function ensureAdv(st) {
+    if (!st.adv) st.adv = st.factions.map(() => []);
+    if (!st.advCool) st.advCool = {};
+    if (!st.advOpen) st.advOpen = st.factions.map(() => []);
+    // 実績（合併・切り崩し・協定の回数）。古いセーブは今の領地から見積もる
+    if (!st.feat) st.feat = st.factions.map(f => ({ merge: Math.max(0, owned(st, f.id).length - 1), steal: 0, pact: Object.values(st.m).filter(x => x.pact.includes(f.id)).length }));
+  }
+  function addFeat(st, f, key) { ensureAdv(st); st.feat[f][key]++; }
+  // 条件の今の値
+  function advMeasure(st, f, key) {
+    const cs = owned(st, f);
+    switch (key) {
+      case 'steal': case 'merge': case 'pact': return st.feat ? st.feat[f][key] : 0;
+      case 'towns': return cs.length;
+      case 'roles': return staffOf(st, f).filter(p => p.role).length;
+      case 'maxTour': return Math.round(Math.max(0, ...cs.map(c => st.m[c].tour)));
+      case 'maxInd': return Math.round(Math.max(0, ...cs.map(c => st.m[c].ind)));
+      case 'tour60': return cs.filter(c => st.m[c].tour >= 60).length;
+      case 'sat': return Math.round(avgSat(st, f));
+      case 'money': return st.factions[f].money;
+    }
+    return 0;
+  }
+  // 条件を満たしたか（一度満たせば、あとで下がっても招ける）
+  function advCond(st, f, id) {
+    const a = ADV_BY_ID[id];
+    if (!a.cond) return { ok: true, now: 0, need: 0, text: '' };
+    const [key, need, text] = a.cond, now = advMeasure(st, f, key);
+    const done = !!(st.advOpen && st.advOpen[f] && st.advOpen[f].includes(id));
+    return { ok: done || now >= need, done, now: Math.min(now, need), need, text };
+  }
   function advOf(st, f) { return (st.adv && st.adv[f]) || []; }
   function advFx(a) { return ADV_FX[a.fx](a.v); }
   function advBonus(st, f, fx) { return advOf(st, f).reduce((s, a) => s + (ADV_BY_ID[a.id].fx === fx ? ADV_BY_ID[a.id].v : 0), 0); }
@@ -418,6 +449,8 @@
     if (a.seki) return { ok: false, reason: '毎年9月、関ケ原町を持つ陣営に訪れます' };
     if (st.advCool && st.advCool[id] > 0) return { ok: false, reason: `あと${st.advCool[id]}か月は招けません` };
     if (st.m[a.home].owner !== f) return { ok: false, reason: 'ゆかりの地を自陣営にすると招けます' };
+    const cd = advCond(st, f, id);
+    if (!cd.ok) return { ok: false, cond: true, reason: `条件：${cd.text}（${cd.now}/${cd.need}）` };
     if (advUsed(st, f) >= advMax(st, f)) return { ok: false, reason: `同時に${advMax(st, f)}人までです${advMax(st, f) < 2 ? `（市町村が${ADV_SLOT2}つで2人）` : ''}` };
     if (apLeft < 1) return { ok: false, reason: '今月の行動力が足りません（1必要）' };
     if (st.factions[f].money < a.cost) return { ok: false, reason: `財源が足りません（${a.cost}億円必要）` };
@@ -444,6 +477,17 @@
         const text = `${lost ? `ゆかりの${names[def.home]}を失い、` : ''}${def.name}の助言が終わりました`;
         addLog(st, fac.id === 0 ? text : `${fac.name}：${text}`, fac.id === 0 ? 'bad' : 'rival');
         if (fac.id === 0) res.news.push(`${def.name}が去る`);
+      }
+    }
+    // 条件を満たした偉人を記録する
+    for (const fac of st.factions) {
+      if (!fac.alive) continue;
+      for (const a of ADVISORS) {
+        if (!a.cond || st.advOpen[fac.id].includes(a.id) || advMeasure(st, fac.id, a.cond[0]) < a.cond[1]) continue;
+        st.advOpen[fac.id].push(a.id);
+        if (fac.id !== 0) continue;
+        addLog(st, `「${a.cond[2]}」を達成。${st.m[a.home].owner === 0 ? `人材の画面から${a.name}を` : `${names[a.home]}を自陣営にすると、${a.name}を`}偉人アドバイザーに招けます`, 'good');
+        res.news.push(`${a.name}を招ける`);
       }
     }
     if (d.month !== 9) return;
@@ -649,7 +693,7 @@
         if (rnd(st) < 0.55 + x.ind / 400) { x.ind = clamp(x.ind + 12, 0, 100); x.pop += 1 + x.pop * 0.01; return `${who}${n}への企業誘致に成功（産業力 ${Math.round(x.ind)}）`; }
         return `${who}${n}への企業誘致は不調に終わりました`;
       case 'visit': st.rel[f][code] = clamp(st.rel[f][code] + e, 0, 100); return `${who}${n}と交流事業（関係度 ${Math.round(st.rel[f][code])}${sl}）`;
-      case 'pact': x.pact.push(f); st.rel[f][code] = clamp(st.rel[f][code] + 5, 0, 100); return `${who}${n}と連携協定を締結`;
+      case 'pact': x.pact.push(f); addFeat(st, f, 'pact'); st.rel[f][code] = clamp(st.rel[f][code] + 5, 0, 100); return `${who}${n}と連携協定を締結`;
       case 'talk': x.talk = { f, left: 3 }; return `${who}${n}に合併協議を申し入れ`;
       case 'counter': {
         const t = x.talk; t.rival = f; t.bids = { [t.f]: 0, [f]: 0 }; t.left = Math.max(t.left, 2);
@@ -796,6 +840,7 @@
       x.talk = null;
       const fac = st.factions[f];
       if (v.pass) {
+        addFeat(st, f, 'merge'); if (prev >= 0) addFeat(st, f, 'steal');
         x.owner = f; x.pact = []; x.sat = clamp(x.sat - 8, 0, 100);
         for (const k of owned(st, f)) if (k !== c) st.m[k].sat = clamp(st.m[k].sat - 1, 0, 100);
         st.rel[f][c] = 60;
@@ -930,7 +975,7 @@
     }
   }
 
-  const api = { ADVISORS, ADV_BY_ID, ADV_MONTHS, ADV_COOL, ADV_SLOT2, ensureAdv, advOf, advFx, advBonus, advMax, advUsed, advHolder, canInviteAdv, inviteAdv, advise, advVote, regionLength, talksMax, APPEAL_TALKS, appeal, appealOf, appealRel, appealVote, INFO, REGIONS, MODES, regionCodes, goalOf, continueToUnify, CMDS, dateOf, difficultyOf, newGame, owned, apMax, totalPop, avgSat, incomeOf,
+  const api = { ADVISORS, ADV_BY_ID, ADV_MONTHS, ADV_COOL, ADV_SLOT2, ensureAdv, advCond, advMeasure, advOf, advFx, advBonus, advMax, advUsed, advHolder, canInviteAdv, inviteAdv, advise, advVote, regionLength, talksMax, APPEAL_TALKS, appeal, appealOf, appealRel, appealVote, INFO, REGIONS, MODES, regionCodes, goalOf, continueToUnify, CMDS, dateOf, difficultyOf, newGame, owned, apMax, totalPop, avgSat, incomeOf,
     factionIncome, grantOf, tagInfo, upkeep, cmdCost, cmdEffect, SCALES, SCALABLE, gradeOf, GRADE_PAY, SCOUT, canScout, scout, ROLES, ABIL, ensureStaff, staffOf, staffMax, abil, roleVal, hireCandidates, hireCost, canHire, hire, assignRole, autoAssign, staffUpkeep, aiStaff, inTalk, BID_MAX, KEEP_MAX, KEEP_STEP, canDo, doCmd, endTurn, adjacentTo, talksOf, seasonX, clamp };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.GameLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);

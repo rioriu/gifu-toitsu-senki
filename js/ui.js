@@ -236,7 +236,7 @@ function renderSheet() {
   const locals = (S.staff || []).filter(q => q.home === c && !q.ext);
   if (locals.length) notes += `<p class="note">ゆかりの人材：${locals.map(q => `${q.name}（${q.f < 0 ? '未登用' : (q.f === 0 ? 'あなたの陣営' : S.factions[q.f].name)}）`).join('、')}</p>`;
   const yukari = L.ADVISORS.filter(a => a.home === c);
-  if (yukari.length) notes += `<p class="note">ゆかりの偉人：${yukari.map(a => `<b>${a.name}</b>（${L.advFx(a)}）`).join('、')}。${c === '21362' ? '毎年9月、この町を持つ陣営に助言に来ます' : mine ? '人材の画面から招けます' : '自陣営にすると招けます'}</p>`;
+  if (yukari.length) notes += `<p class="note">ゆかりの偉人：${yukari.map(a => `<b>${a.name}</b>（${L.advFx(a)}）`).join('、')}。${c === '21362' ? '毎年9月、この町を持つ陣営に助言に来ます' : mine ? '条件を満たすと人材の画面から招けます' : '自陣営にして条件を満たすと招けます'}</p>`;
   if (!mine && L.adjacentTo(S, ADJ, c, 0)) {
     const dr = L.appealRel(S, 0, c), dv = Math.round(L.appealVote(S, 0, c));
     notes += `<p class="note">魅力：あなたの陣営 ${Math.round(L.appeal(S, 0))}／${NAMES[c]} ${Math.round(L.appealOf(S, c))}。${dr > 0 ? `関係度が毎月 +${dr.toFixed(1)}` : '魅力の差が10未満なので関係度の自然な伸びはなし'}・住民投票の賛成 ${dv >= 0 ? '+' : '−'}${Math.abs(dv)}</p>`;
@@ -492,22 +492,29 @@ function advHint() {
   if (!can.length) return '';
   return `<p class="note">${can.map(a => a.name).join('・')}を偉人アドバイザーに招けます。<button class="linkbtn" data-open-staff>人材の画面へ</button></p>`;
 }
+// 招く条件：ゆかりの地と、偉人ごとの条件。満たしたものに印を付ける
+function condHtml(a, home) {
+  if (a.seki) return `<ul class="conds"><li class="${home ? 'ok' : ''}">${NAMES[a.home]}を持って9月を迎える</li></ul>`;
+  const c = L.advCond(S, 0, a.id);
+  return `<ul class="conds"><li class="${home ? 'ok' : ''}">${NAMES[a.home]}を自陣営にする</li><li class="${c.ok ? 'ok' : ''}">${c.text}${c.ok ? '' : `<span class="num">（${c.now}/${c.need}）</span>`}</li></ul>`;
+}
 function advSection() {
   const act = L.advOf(S, 0), max = L.advMax(S, 0);
   const active = act.length ? act.map(a => advCard(a.id, a.left, true)).join('') : '<p class="empty">いま助言している偉人はいません。</p>';
   const rest = L.ADVISORS.filter(a => !act.some(x => x.id === a.id)).map(a => ({ a, r: L.canInviteAdv(S, 0, a.id, S.ap) }));
   rest.sort((p, q) => q.r.ok - p.r.ok || (S.m[q.a.home].owner === 0) - (S.m[p.a.home].owner === 0) || !!p.a.seki - !!q.a.seki);
   const card = ({ a, r }) => {
-    const why = r.ok ? '' : (r.reason === 'ゆかりの地を自陣営にすると招けます' ? `${NAMES[a.home]}を自陣営にすると招けます` : r.reason);
-    return `<div class="adv${r.ok || S.m[a.home].owner === 0 ? '' : ' locked'}"><div class="top"><b class="nm">${a.name}</b><small>${a.title}・${NAMES[a.home]}ゆかり</small></div>
-      <span class="fx">${L.advFx(a)}</span>
-      ${r.ok ? `<button class="btn main hirebtn" data-adv="${a.id}">招く（${a.cost}億円・行動1）</button>` : `<span class="why">${why}</span>`}</div>`;
+    const home = S.m[a.home].owner === 0;
+    const why = r.ok || r.cond || r.reason === 'ゆかりの地を自陣営にすると招けます' ? '' : r.reason;
+    return `<div class="adv${r.ok ? '' : ' locked'}"><div class="top"><b class="nm">${a.name}</b><small>${a.title}・${NAMES[a.home]}ゆかり</small></div>
+      <span class="fx">${L.advFx(a)}</span>${condHtml(a, home)}
+      ${r.ok ? `<button class="btn main hirebtn" data-adv="${a.id}">招く（${a.cost}億円・行動1）</button>` : why ? `<span class="why">${why}</span>` : ''}</div>`;
   };
-  // ゆかりの地を持っている偉人は表に、まだの偉人はたたんでおく
-  const near = rest.filter(x => x.r.ok || S.m[x.a.home].owner === 0), far = rest.filter(x => !near.includes(x));
+  // 招ける偉人と、条件のどちらかを満たしている偉人は表に、ほかはたたんでおく
+  const near = rest.filter(x => x.r.ok || S.m[x.a.home].owner === 0 || (x.a.cond && L.advCond(S, 0, x.a.id).ok)), far = rest.filter(x => !near.includes(x));
   const list = near.map(card).join('') + (far.length ? `<details class="advmore"><summary>ほかの偉人（${far.length}人）</summary><div class="advs">${far.map(card).join('')}</div></details>` : '');
   return `<div class="h4" id="advHead">偉人アドバイザー（${L.advUsed(S, 0)}/${max}人）</div>
-    <p class="sub" style="margin-top:-2px">岐阜ゆかりの歴史人物が${L.ADV_MONTHS}か月だけ助言し、効果をくれます。ゆかりの地を自陣営に持つと招け、失うと去ります。去ったあと${L.ADV_COOL}か月は招けません。市町村が${L.ADV_SLOT2}つ以上で2人まで。毎年9月には関ケ原町を持つ陣営に関ケ原ゆかりの偉人が訪れます（人数に数えません）。</p>
+    <p class="sub" style="margin-top:-2px">岐阜ゆかりの歴史人物が${L.ADV_MONTHS}か月だけ助言し、効果をくれます。ゆかりの地を自陣営に持ち、偉人ごとの条件を一度でも満たすと招けます。ゆかりの地を失うと去ります。去ったあと${L.ADV_COOL}か月は招けません。市町村が${L.ADV_SLOT2}つ以上で2人まで。毎年9月には関ケ原町を持つ陣営に関ケ原ゆかりの偉人が訪れます（人数に数えません）。</p>
     <div class="advs">${active}</div>
     <div class="advs" style="margin-top:8px">${list}</div>`;
 }
@@ -616,7 +623,7 @@ const HOWTO = `<li><b>交流事業</b>で隣の市町村との関係度を上げ
   <li>産業力と観光力は何もしないと少しずつ下がる。<b>産業振興</b>と<b>観光PR</b>で保つ</li>
   <li>内政と交流事業は<b>予算規模</b>を選べる。大きいほど効果が大きいが割高</li>
   <li>人材にはC〜Sのランクがあり、<b>県外から招へい</b>で高ランクを迎えられる</li>
-  <li><b>偉人アドバイザー</b>：斎藤道三・織田信長・竹中半兵衛など岐阜ゆかりの歴史人物を、ゆかりの地を持つと人材の画面から招ける。${L.ADV_MONTHS}か月だけ効果をくれる。毎年9月は関ケ原町を持つ陣営に関ケ原の偉人が訪れる</li>
+  <li><b>偉人アドバイザー</b>：斎藤道三・織田信長・竹中半兵衛など岐阜ゆかりの歴史人物を、ゆかりの地を持ち、偉人ごとの条件（合併を1回可決、財源100億円など）を満たすと人材の画面から招ける。${L.ADV_MONTHS}か月だけ効果をくれる。毎年9月は関ケ原町を持つ陣営に関ケ原の偉人が訪れる</li>
   <li>相手の本拠地は、その陣営の市町村が3つ以下になると切り崩せる</li>
   <li>自分の市町村が合併協議をかけられたら、<b>引き留め</b>で住民投票の賛成を下げられる（最大3段）</li>
   <li>財源のマイナスが3か月続くか、満足度が20を下回ると負け</li>`;
@@ -682,7 +689,7 @@ function showStartDetail(c) {
     <div class="h4">数値</div>
     <div class="meters">${meterP('産業力', x.ind)}${meterP('観光力', x.tour)}${meterP('満足度', x.sat)}${meterP('防災力', x.dis)}</div>
     <div class="h4">最初からいる人材</div><div class="people">${staff}</div>
-    ${L.ADVISORS.some(a => a.home === c) ? `<div class="h4">ゆかりの偉人アドバイザー</div><div class="advs">${L.ADVISORS.filter(a => a.home === c).map(a => `<div class="adv"><div class="top"><b class="nm">${a.name}</b><small>${a.title}${a.seki ? '・毎年9月に訪れる' : `・${a.cost}億円で招ける`}</small></div><span class="fx">${L.advFx(a)}</span></div>`).join('')}</div>` : ''}
+    ${L.ADVISORS.some(a => a.home === c) ? `<div class="h4">ゆかりの偉人アドバイザー</div><div class="advs">${L.ADVISORS.filter(a => a.home === c).map(a => `<div class="adv"><div class="top"><b class="nm">${a.name}</b><small>${a.title}${a.seki ? '・毎年9月に訪れる' : `・${a.cost}億円`}</small></div><span class="fx">${L.advFx(a)}</span>${a.cond ? `<span class="why">招く条件：${a.cond[2]}</span>` : ''}</div>`).join('')}</div>` : ''}
     <div class="h4">隣の市町村（${ADJ[c].length}）</div><p class="note" style="margin:0">${nb}</p>
     <div class="h4">ライバル</div><p style="margin:0;display:flex;gap:6px;flex-wrap:wrap">${rivals}</p>
     ${pickMode() === 'region' ? goalHtml(st, c) : ''}
