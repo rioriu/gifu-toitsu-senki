@@ -80,7 +80,7 @@ function homeBox() {
   return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 }
 function regionView(r) {
-  if (r === '自陣') return { b: homeBox(), pad: 40, flash: L.owned(S, 0) };
+  if (r === '自陣') return { b: homeBox(), pad: 40, flash: [] };
   if (r === '全県') return { b: bboxOf(Object.keys(NAMES)), pad: 14, flash: [] };
   const codes = L.regionCodes(r);
   return { b: bboxOf(codes), pad: 8, flash: codes };
