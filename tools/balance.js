@@ -105,6 +105,10 @@ function botTurn(st, f) {
       .sort((a, b) => (b === me.capital) - (a === me.capital) || st.m[b].pop - st.m[a].pop);
     if (attacked.some(c => act('keep', c, true))) continue;
     if (attacked.some(c => st.m[c].sat < rivalSat(st, f, c) + 5 && st.m[c].sat < 95 && act('care', c, true))) continue;
+    // 首長選挙：対立候補を立てられた市町村は、負けそうなら演説会（本拠地と大きな町を優先）
+    const races = own.filter(c => { const r = st.m[c].race; return r && r.inc === f && L.electMine(st, c) < 62; })
+      .sort((a, b) => (b === me.capital) - (a === me.capital) || st.m[b].pop - st.m[a].pop);
+    if (races.some(c => act('rally', c, true))) continue;
     // 2. 切り崩されそうな境目の市町村の満足度を先に上げる（本拠地は市町村が4つ以下のときに特に）
     const weak = own.filter(c => {
       const rs = rivalSat(st, f, c);
@@ -131,6 +135,11 @@ function botTurn(st, f) {
     // ほかの陣営の協議には、こちらの関係度が負けていなければ対抗提案
     const counter = near.find(c => { const t = st.m[c].talk; return t && t.rival === undefined && t.f !== f && st.m[c].owner === -1 && st.rel[f][c] >= st.rel[t.f][c] - 5; });
     if (counter && act('counter', counter)) continue;
+    // 首長選挙：自分の候補が負けそうなら演説会。ライバルの市町村の選挙に、勝てる見込みがあれば候補を立てる
+    const myRuns = Object.keys(st.m).filter(c => { const r = st.m[c].race; return r && r.ch === f && L.electMine(st, c) < 60; });
+    if (myRuns.some(c => act('rally', c))) continue;
+    const runnable = near.filter(c => st.m[c].owner >= 0 && L.electLeft(st, c) < L.ELECT_WINDOW && L.electExpect(st, f, c) >= 50 && L.canDo(st, ADJ, f, 'run', c, st.ap).ok).sort((a, b) => pref(b) - pref(a));
+    if (runnable.some(c => act('run', c))) continue;
     // 6. 連携協定
     if (near.some(c => act('pact', c))) continue;
     // 7. 交流事業：協議中で見込みが低い相手 → 協議・協定まであと少しの相手 → 切り崩せそうなライバルの市町村
@@ -171,7 +180,7 @@ function run(code, mode, seed, months) {
 }
 const median = a => { if (!a.length) return null; const s = a.slice().sort((p, q) => p - q); return s[s.length >> 1]; };
 // 負けの理由を短く
-const LOSS = [['本拠地', '本拠地を合併された'], ['財源', '財政破綻'], ['住民満足度', 'リコール']];
+const LOSS = [['本拠地', '本拠地を奪われた'], ['財源', '財政破綻'], ['住民満足度', 'リコール']];
 function measure(code, mode, n, months) {
   const r = { win: 0, winT: [], loss: {}, lossT: [], open: 0, openTowns: [], peak: [], goal: 0 };
   for (let i = 1; i <= n; i++) {

@@ -192,6 +192,12 @@ function paintMap() {
       q.style.stroke = colorVar(t.rival); tg.appendChild(q);
     }
   }
+  // 首長選挙：候補を立てた陣営の色の点線
+  for (const c in S.m) {
+    const r = S.m[c].race; if (!r) continue;
+    const p = document.createElementNS(NS, 'path'); p.setAttribute('d', BYCODE[c].d); p.setAttribute('class', 'race');
+    p.style.stroke = colorVar(r.ch); tg.appendChild(p);
+  }
   if (S.lure) for (const r of L.lureRows(S, ADJ)) {
     const p = document.createElementNS(NS, 'path'); p.setAttribute('d', BYCODE[r.site].d); p.setAttribute('class', 'lure');
     p.style.stroke = colorVar(r.f); tg.appendChild(p);
@@ -254,10 +260,15 @@ function renderSheet() {
     const advTag = advs.length ? `<span class="tag adv-tag">助言 ${advs.map(a => L.ADV_BY_ID[a.id].name).join('・')}</span>` : '';
     const advNote = advs.length ? `<div class="advs">${advs.map(a => advCard(a.id, a.left, true)).join('')}</div>` : advHint();
     const lureTag = S.lure ? `<span class="tag lure-tag">誘致合戦 あと${S.lure.left}か月</span>` : '';
+    // 首長選挙：対立候補を立てられた自陣営の市町村と、候補を立てられる隣の市町村
+    const races = Object.keys(S.m).filter(c => { const r = S.m[c].race; return r && (r.ch === 0 || r.inc === 0); });
+    const open = Object.keys(S.m).filter(c => S.m[c].owner > 0 && !S.m[c].race && L.electLeft(S, c) < L.ELECT_WINDOW && L.adjacentTo(S, ADJ, c, 0));
+    const electNote = (races.length ? `<p class="note talking">首長選挙：${races.map(c => `<b>${NAMES[c]}</b>（${S.m[c].race.inc === 0 ? '対立候補あり' : 'あなたの候補'}・見込み${Math.round(L.electMine(S, c))}％・あと${L.electLeft(S, c) + 1}か月）`).join('、')}。台帳の「演説会」で得票を伸ばせます</p>` : '')
+      + (open.length ? `<p class="note">${open.map(c => NAMES[c]).join('・')}で首長選挙が近づいています。候補を立てて当選すれば、自陣営に移ります</p>` : '');
     sheetFrame(`<h2>${NAMES[me.capital]}陣営</h2><span class="tag">${L.owned(S, 0).length}市町村</span>${goalTag()}${lureTag}${advTag}`,
       first ? '<b>隣の市町村をタップ</b>して、交流事業で関係度を上げましょう' : '',
       '',
-      `<p class="facts num">人口 ${L.totalPop(S, 0).toFixed(1)}千人 · 平均満足度 ${Math.round(L.avgSat(S, 0))} · 収入 ${L.factionIncome(S, 0, L.dateOf(S.turn).month)}億円/月 · 維持費 ${L.upkeep(S, 0)}億円 · 魅力 ${Math.round(L.appeal(S, 0))} · 協議 同時${L.talksMax(S, 0)}件まで</p>` + lureHtml() + tips + advNote);
+      `<p class="facts num">人口 ${L.totalPop(S, 0).toFixed(1)}千人 · 平均満足度 ${Math.round(L.avgSat(S, 0))} · 収入 ${L.factionIncome(S, 0, L.dateOf(S.turn).month)}億円/月 · 維持費 ${L.upkeep(S, 0)}億円 · 魅力 ${Math.round(L.appeal(S, 0))} · 協議 同時${L.talksMax(S, 0)}件まで</p>` + lureHtml() + electNote + tips + advNote);
     for (const b of sh.querySelectorAll('[data-open-staff]')) b.onclick = () => showStaff('adv');
     bindLure(sh);
     return;
@@ -277,6 +288,14 @@ function renderSheet() {
     if (mine) alert = `狙われています・あと${x.talk.left}か月`;
     notes += `<p class="note${mine ? ' talking' : ''}" style="${mine ? 'color:var(--bad)' : ''}">${mine ? 'この市町村が狙われています。' : ''}引き留め ${x.talk.keep || 0}/${L.KEEP_MAX}段（賛成 −${(x.talk.keep || 0) * L.KEEP_STEP}ポイント）</p>`;
   }
+  // 首長選挙：投票日と、候補が立っていれば両陣営の演説会と見込み
+  const race = x.race, eLeft = L.electLeft(S, c);
+  if (race && (race.ch === 0 || race.inc === 0)) {
+    const e = Math.round(L.electMine(S, c)), other = race.ch === 0 ? race.inc : race.ch;
+    if (race.inc === 0) alert = `対立候補・投票まで${eLeft + 1}か月`;
+    notes += `<p class="note talking"${race.inc === 0 ? ' style="color:var(--bad)"' : ''}>首長選挙（${L.dateOf(x.elect).label}末に開票）：${race.inc === 0 ? `${fname(race.ch)}が対立候補を立てています。` : `あなたの陣営の候補が${fname(race.inc)}の現職に挑んでいます。`}演説会 あなた${race.rally[0]}回／相手${race.rally[other]}回。得票の見込み ${e}％</p>`;
+  } else if (race) notes += `<p class="note">首長選挙（${L.dateOf(x.elect).label}末に開票）：${fname(race.ch)}が候補を立て、${fname(race.inc)}の現職に挑んでいます</p>`;
+  else if (x.owner >= 0) notes += `<p class="note">次の首長選挙：${L.dateOf(x.elect).label}${eLeft < L.ELECT_WINDOW ? `（あと${eLeft + 1}か月。${mine ? 'ほかの陣営が対立候補を立てられる時期です' : '隣り合っていれば候補を立てられます'}）` : ''}</p>`;
   if (x.firms && x.firms.length) notes += `<p class="note">立地企業：${x.firms.map(k => k.name).join('、')}（税収 毎月+${L.firmInc(x)}億円。この市町村を持つ陣営に入ります）</p>`;
   if (S.lure && L.lureRows(S, ADJ).some(r => r.site === c)) notes += lureHtml(c);
   if (x.pact.length) notes += `<p class="note">連携協定：${x.pact.map(f => S.factions[f].name).join('、')}</p>`;
@@ -296,6 +315,9 @@ function renderSheet() {
   const attacked = mine && t && !L.inTalk(t, 0);
   const cmds = mine ? (attacked ? ['keep', 'care', 'ind', 'tour', 'dis', 'invite'] : ['ind', 'tour', 'care', 'dis', 'invite']) : ['visit', 'pact', third];
   if (mine && S.lure && L.lureSite(S, ADJ, 0) === c) cmds.unshift('lure');
+  // 首長選挙：関わっていれば演説会。ほかの陣営の市町村は、選挙の時期なら候補を立てられる（協定の代わりに出す）
+  if (race && (race.ch === 0 || race.inc === 0)) cmds.unshift('rally');
+  else if (!mine && x.owner >= 0 && eLeft < L.ELECT_WINDOW) cmds.splice(cmds.indexOf('pact'), 1, 'run');
   if (S.budget === undefined) S.budget = 1;
   const EFF = { ind: '産業力', tour: '観光力', care: '満足度', dis: '防災力', visit: '関係度' };
   const btns = cmds.map(k => {
@@ -304,8 +326,10 @@ function renderSheet() {
     const e = L.cmdEffect(S, 0, k, sc);
     // 産業力・観光力は陣営の魅力にも効くので、上がり幅を添える
     const ga = (k === 'ind' || k === 'tour') ? Math.min(e, 100 - x[k]) / 2 * x.pop / (L.totalPop(S, 0) || 1) : 0;
-    const note = EFF[k] ? `${EFF[k]} +${e}${ga >= 0.05 ? `・陣営の魅力 +${ga.toFixed(1)}` : ''}` : k === 'lure' ? `+${L.LURE_PT}点（${L.lureBid(S, 0)}/${L.LURE_MAX}段）・負けたら戻る` : def.note;
-    return `<button class="cmd${['talk', 'counter', 'raise', 'keep', 'lure'].includes(k) ? ' primary' : ''}" data-cmd="${k}" aria-disabled="${!r.ok}">
+    const note = EFF[k] ? `${EFF[k]} +${e}${ga >= 0.05 ? `・陣営の魅力 +${ga.toFixed(1)}` : ''}` : k === 'lure' ? `+${L.LURE_PT}点（${L.lureBid(S, 0)}/${L.LURE_MAX}段）・負けたら戻る`
+      : k === 'run' ? `当選すれば自陣営に。得票の見込み ${Math.round(L.electExpect(S, 0, c))}％（${L.dateOf(x.elect).label}末に開票）`
+      : k === 'rally' ? `得票 +${L.RALLY_STEP}（${race.rally[0]}/${L.RALLY_MAX}回）・いまの見込み ${Math.round(L.electMine(S, c))}％` : def.note;
+    return `<button class="cmd${['talk', 'counter', 'raise', 'keep', 'lure', 'run', 'rally'].includes(k) ? ' primary' : ''}" data-cmd="${k}" aria-disabled="${!r.ok}">
       <span class="ttl"><strong>${def.label}</strong><span class="cost num">${cost ? cost + '億・' : ''}行動${def.ap}</span></span><small>${r.ok ? note : r.reason}</small></button>`;
   }).join('');
   // 一行に収まる要点だけ。他陣営・独立なら関係度、自陣営なら満足度を先に出す
@@ -423,10 +447,13 @@ function runBattles(list) {
 }
 // 決戦に渡すもの：市町村の形、いまの見込み、自陣営のある向き、技になる人材と偉人
 function battleOpts(c) {
-  const m = BYCODE[c];
-  const mine = ADJ[c].filter(k => S.m[k].owner === 0).map(k => BYCODE[k]);
+  const m = BYCODE[c], race = L.raceDue(S, c) ? S.m[c].race : null, defend = !!race && race.inc === 0;
+  // 味方の地区は自陣営の側に置く。現職で守るときは、相手陣営の反対側
+  const other = race ? (defend ? race.ch : race.inc) : null;
+  const toward = defend && ADJ[c].some(k => S.m[k].owner === other) ? ADJ[c].filter(k => S.m[k].owner === other) : ADJ[c].filter(k => S.m[k].owner === 0);
+  const mine = toward.map(k => BYCODE[k]), sign = defend && toward.some(k => S.m[k].owner === other) ? -1 : 1;
   let dx = 0, dy = 0;
-  for (const k of mine) { dx += k.lx - m.lx; dy += k.ly - m.ly; }
+  for (const k of mine) { dx += (k.lx - m.lx) * sign; dy += (k.ly - m.ly) * sign; }
   const len = Math.hypot(dx, dy) || 1;
   // 人材は役職に就いている人を先に3人まで。いちばん高い能力で技が決まる
   const staff = L.staffOf(S, 0).slice().sort((a, b) => (b.role ? 1 : 0) - (a.role ? 1 : 0)).map(p => {
@@ -437,7 +464,8 @@ function battleOpts(c) {
   return {
     code: c, name: NAMES[c], d: m.d, lx: m.lx, ly: m.ly, pop: S.m[c].pop, expect: L.battleExpect(S, c),
     dir: { x: dx / len, y: dy / len }, mine: NAMES[S.factions[0].capital], mineFac: S.factions[0].name,
-    staff, adv: a ? { name: a.name, say: a.say } : null
+    staff, adv: a ? { name: a.name, say: a.say } : null,
+    ...(race ? { kind: 'elect', defend, rival: S.factions[other].name } : {})
   };
 }
 function finishMonth() {
@@ -460,7 +488,7 @@ function afterMonth(res, before, summary) {
   } else {
     render(); toast(summary);
     // 決戦で決めた住民投票は、決戦の開票で見せたので出さない
-    queue = [...res.votes.filter(v => !v.battle).map(v => () => showVote(v, next)), ...res.lures.map(s => () => showLure(s, next)), ...res.joins.map(s => () => showJoin(s, next))];
+    queue = [...res.votes.filter(v => !v.battle).map(v => () => showVote(v, next)), ...res.elects.filter(v => !v.battle).map(v => () => showElect(v, next)), ...res.lures.map(s => () => showLure(s, next)), ...res.joins.map(s => () => showJoin(s, next))];
     if (S.over) queue.push(() => showOver());
     next();
   }
@@ -491,6 +519,10 @@ function stepCaption(s) {
     return { who: `誘致合戦・${n}`, what: `${s.name}は${facName(s.f)}に決定（補助金${s.rows.find(r => r.f === s.f).n}段）`, color: colorVar(s.f), warn: s.mine && s.f !== 0 };
   }
   if (s.kind === 'event') return { who: '出来事', what: s.text, color: s.tone === 'bad' ? 'var(--bad)' : 'var(--good)', warn: false };
+  if (s.kind === 'elect') {
+    const pct = Math.round((s.pass ? s.yes : s.no) / Math.max(1, s.yes + s.no) * 100);
+    return { who: `首長選挙・${n}`, what: s.pass ? `${facName(s.ch)}の候補が当選（得票${pct}％）。${facName(s.ch)}に移る` : `現職（${facName(s.prev)}）が再選（得票${pct}％）`, color: colorVar(s.f), warn: s.prev === 0 && s.pass };
+  }
   if (s.kind === 'vote') {
     const who = s.f === 0 ? 'あなたの陣営' : S.factions[s.f].name;
     const pct = Math.round(s.yes / Math.max(1, s.yes + s.no) * 100);
@@ -526,11 +558,13 @@ function playStep() {
   const pg = $('pulse'); pg.textContent = '';
   const p = document.createElementNS(NS, 'path'); p.setAttribute('d', BYCODE[s.code].d); p.setAttribute('class', 'pulse');
   p.style.fill = cap.color; p.style.stroke = cap.color; pg.appendChild(p);
-  if (s.kind === 'vote' && s.pass) setTimeout(() => { if (replay) { replay.owners[s.code] = s.f; paintMap(); } }, 500);
+  if ((s.kind === 'vote' || s.kind === 'elect') && s.pass) setTimeout(() => { if (replay) { replay.owners[s.code] = s.f; paintMap(); } }, 500);
   if (s.kind === 'join') setTimeout(() => { if (replay) { for (const c of s.towns) replay.owners[c] = s.f; paintMap(); } }, 500);
   paintMap();
   const mineVote = s.kind === 'vote' && !s.battle && (s.f === 0 || s.prev === 0 || (s.contest && s.contest.loser === 0));
+  const mineElect = s.kind === 'elect' && !s.battle && (s.ch === 0 || s.prev === 0);
   if (mineVote) replayTimer = setTimeout(() => showVote(s, () => { closeOverlay(); advance(); }), 900);
+  else if (mineElect) replayTimer = setTimeout(() => showElect(s, () => { closeOverlay(); advance(); }), 900);
   else if (s.kind === 'lure' && s.mine) replayTimer = setTimeout(() => showLure(s, () => { closeOverlay(); advance(); }), 900);
   else if (s.kind === 'join' && s.mine) replayTimer = setTimeout(() => showJoin(s, () => { closeOverlay(); advance(); }), 900);
   else replayTimer = setTimeout(advance, s.kind === 'rival' && ['visit', 'pact', 'talk'].includes(s.cmd) || s.kind !== 'rival' ? 1700 : 1100);
@@ -541,11 +575,11 @@ function endReplay() {
   if (!replay) return;
   const { done, home } = replay;
   // 飛ばした分の自分に関わる住民投票は、結果だけ順に見せる
-  const rest = replay.steps.slice(replay.i + 1).filter(s => (s.kind === 'vote' && !s.battle && (s.f === 0 || s.prev === 0)) || ((s.kind === 'lure' || s.kind === 'join') && s.mine));
+  const rest = replay.steps.slice(replay.i + 1).filter(s => (s.kind === 'vote' && !s.battle && (s.f === 0 || s.prev === 0)) || (s.kind === 'elect' && !s.battle && (s.ch === 0 || s.prev === 0)) || ((s.kind === 'lure' || s.kind === 'join') && s.mine));
   replay = null;
   $('pulse').textContent = ''; $('replay').hidden = true; $('chips').hidden = false; $('endBtn').disabled = false;
   animateTo(home); render();
-  if (rest.length) { queue = rest.map(v => () => v.kind === 'lure' ? showLure(v, next) : v.kind === 'join' ? showJoin(v, next) : showVote(v, next)); queue.push(done); next(); }
+  if (rest.length) { queue = rest.map(v => () => v.kind === 'lure' ? showLure(v, next) : v.kind === 'join' ? showJoin(v, next) : v.kind === 'elect' ? showElect(v, next) : showVote(v, next)); queue.push(done); next(); }
   else done();
 }
 $('replay').addEventListener('click', e => { if (e.target.id === 'rpSkip') return; advance(); });
@@ -568,7 +602,7 @@ const EVENTS = [
   { id: 'ukai', re: /鵜飼が開幕/, title: '長良川鵜飼', towns: ['21201', '21205'] },
   { id: 'gujo', re: /郡上おどり/, title: '郡上おどり', towns: ['21219'] },
   { id: 'seki', re: /関ケ原の戦いの月/, title: '関ケ原の戦いの月', towns: ['21362'] },
-  { id: 'rain', re: /豪雨/ }, { id: 'snow', re: /豪雪/ }, { id: 'firm', re: /企業が進出|誘致合戦/ }
+  { id: 'elect', re: /首長選挙/ }, { id: 'rain', re: /豪雨/ }, { id: 'snow', re: /豪雪/ }, { id: 'firm', re: /企業が進出|誘致合戦/ }
 ];
 function eventArt(list) { const ev = EVENTS.find(x => list.some(e => x.re.test(e.text))); return ev ? art(`img/event/${ev.id}.webp`, 'art-news') : ''; }
 
@@ -628,6 +662,25 @@ function showJoin(s, onOk) {
     <div class="lure"><span class="fx">加わる市町村：${s.towns.map(c => NAMES[c]).join('・')}</span>
       <span class="why">財源 +${s.money}億円${s.joined.length ? `・人材 ${s.joined.join('・')}` : ''}</span></div>
     <p class="note">合流した市町村は、しばらく満足度が${L.JOIN_SAT}下がります。人材は役職なしで加わるので、人材の画面で役職に就けてください。</p>
+    <div class="row"><button class="btn main" id="okBtn">次へ</button></div>`);
+  $('okBtn').onclick = onOk || next;
+}
+// 首長選挙の開票結果（あなたの陣営が候補を立てたか、現職で守った選挙）
+function showElect(v, onOk) {
+  const mineCh = v.ch === 0, other = mineCh ? v.prev : v.ch, rival = facName(other), total = v.yes + v.no;
+  const my = mineCh ? v.yes : v.no, their = mineCh ? v.no : v.yes, mp = total ? my / total * 100 : 50;
+  const won = mineCh === v.pass, n = NAMES[v.code];
+  const lead = mineCh ? (v.pass ? `${n}はあなたの陣営に移りました。` : 'あなたの陣営の候補は落選しました。関係度が下がりました。') : (v.pass ? `${n}は${rival}に移りました。` : `現職が再選し、${n}を守りました。`);
+  const joinLine = v.joined && v.joined.length ? `<p class="sub">${n}ゆかりの人材：${v.joined.join('・')}が${facName(v.ch)}に加わりました</p>` : '';
+  openOverlay(`${art('img/event/elect.webp', 'art-top art-band')}<h3>首長選挙 開票結果</h3>
+    <p class="sub">${n}　あなたの陣営の${mineCh ? '候補' : '現職'} 対 ${rival}の${mineCh ? '現職' : '候補'}</p>${joinLine}
+    <div class="ballot">
+      <div class="vs"><div><small>あなたの陣営</small><b class="num">${my.toLocaleString()}票</b></div><div style="text-align:right;margin-right:110px"><small>${rival}</small><b class="num">${their.toLocaleString()}票</b></div></div>
+      <div class="split" style="margin-right:110px"><i class="yes" style="width:${mp}%"></i><i class="no" style="width:${100 - mp}%"></i></div>
+      <small class="num">投票率 ${(v.turnout * 100).toFixed(1)}％・演説会 あなた${v.rally[0] || 0}回／相手${v.rally[other] || 0}回</small>
+      <div class="stamp ${won ? 'pass' : ''}">${won ? (mineCh ? '当選' : '再選') : '落選'}</div>
+    </div>
+    <p style="margin:14px 0 0;font-weight:700;color:${won ? 'var(--good)' : 'var(--bad)'}">${lead}</p>
     <div class="row"><button class="btn main" id="okBtn">次へ</button></div>`);
   $('okBtn').onclick = onOk || next;
 }
@@ -814,6 +867,7 @@ const HOWTO = `<li><b>交流事業</b>で隣の市町村との関係度を上げ
   <li>協議の3か月後に<b>住民投票</b>。満足度が高いほど賛成が増える</li>
   <li><b>住民投票の決戦</b>：賛成の見込みが${L.BATTLE_MIN}〜${L.BATTLE_MAX}％の住民投票は、月を終える前に90秒の陣取りで決める。地区から隣の地区へなぞって運動員を送り、押さえた地区ほど賛成が高くなる。人材が技になる。「おまかせ」で今までの計算にもできる</li>
   <li>ライバルの市町村は、相手の満足度が低いか、こちらの平均満足度が8以上高いと切り崩せる</li>
+  <li><b>首長選挙</b>：各市町村で4年ごとにある。ほかの陣営の市町村は、投票日の3か月前から<b>候補を擁立</b>でき、当選すれば自陣営に移る。現職が少し有利。<b>演説会</b>で得票を伸ばせる。自陣営の市町村にも対立候補を立てられるので、演説会で守る</li>
   <li>ほかの陣営が協議中の市町村には<b>対抗提案</b>で割り込める。<b>条件を上乗せ</b>した段数が多いほど選ばれやすい</li>
   <li><b>人材</b>を登用して役職（副市長・企画課長・交渉担当・観光大使）に就けると、税収や内政、住民投票に効く。合併するとその市町村ゆかりの人材が加わる</li>
   <li><b>魅力</b>は産業力と観光力の平均。陣営の魅力が相手より10以上高いと関係度が毎月自然に上がり、住民投票の賛成も増える。魅力${L.APPEAL_TALKS.join('・')}で同時に進められる協議が1件ずつ増える</li>
@@ -953,7 +1007,7 @@ function startNew(code) {
   toast(`${NAMES[code]}の首長に就任しました`);
 }
 function afterLoad() {
-  L.ensureStaff(S); L.ensureAdv(S);
+  L.ensureStaff(S); L.ensureAdv(S); L.ensureElect(S);
   sel = null; seenLog = S.log.length; closeOverlay(); render();
   // 本拠地のまわりに大きく寄せて始める。隣の市町村をそのままタップできる
   zoomRegion('自陣', true);

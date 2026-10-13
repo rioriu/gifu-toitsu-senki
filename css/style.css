@@ -305,6 +305,8 @@ select { font: inherit; padding: 10px; border-radius: 10px; border: 1px solid va
 @media (min-width: 560px) { .cmds { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 /* 誘致合戦：候補地を点線で囲み、台帳には点数の表を出す */
 #map .lure { fill: none; stroke-width: 3; vector-effect: non-scaling-stroke; stroke-dasharray: 1 5; stroke-linecap: round; pointer-events: none; }
+/* 首長選挙：候補を立てた陣営の色の一点鎖線 */
+#map .race { fill: none; stroke-width: 3; vector-effect: non-scaling-stroke; stroke-dasharray: 10 4 2 4; stroke-linecap: round; pointer-events: none; }
 .tag.lure-tag { border-color: var(--warn); color: var(--warn); }
 .lure { border: 1px solid var(--line); border-left: 4px solid var(--warn); border-radius: 12px; padding: 9px 12px; background: var(--surface-2); display: grid; gap: 4px; justify-items: start; margin-top: 8px; }
 .lure .top { display: flex; align-items: baseline; gap: 4px 8px; flex-wrap: wrap; width: 100%; }

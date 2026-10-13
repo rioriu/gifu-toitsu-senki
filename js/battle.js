@@ -1,5 +1,6 @@
 // 岐阜統一戦記 住民投票の決戦（運動員の陣取り）
 // 見込みが30〜70％の自陣営の住民投票で、月を終える前に開く。90秒のあいだ地区を運動員で取り合い、押さえた地区ほど賛成が高くなる。
+// 首長選挙（opts.kind === 'elect'）でも同じ画面を使い、言葉だけを変える（賛成→自陣営の得票、反対派→相手陣営）。
 // 画面だけの処理で、結果（賛成票・反対票・投票率）を返す。おまかせなら null を返し、いままでの計算（見込み±10％）で決まる。
 // 使い方: Battle.start(opts, done)  opts は ui.js の battleOpts() を参照
 (function (root) {
@@ -21,11 +22,29 @@
   const SKILL_COLORS = ['#c0392b', '#8e44ad', '#2471a3'];
   const DIRS = [['北', 0], ['北東', 45], ['東', 90], ['南東', 135], ['南', 180], ['南西', 225], ['西', 270], ['北西', 315]];
 
-  let el, cv, ctx, ro = null, W = 0, H = 0, DPR = 1, C = {}, st = null, opts = null, done = null, raf = 0, last = 0;
+  let words = null, el, cv, ctx, ro = null, W = 0, H = 0, DPR = 1, C = {}, st = null, opts = null, done = null, raf = 0, last = 0;
   const reduce = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
   const rand = () => Math.random();
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const $ = id => el.querySelector('#' + id);
+
+  // ---------- 言葉 ----------
+  // 住民投票と首長選挙で変わる言葉。首長選挙は、あなたの陣営が候補を立てた側（opts.defend なしで）か、現職で守る側（opts.defend）
+  function wordsOf(o) {
+    if (o.kind !== 'elect') return {
+      title: '住民投票の決戦', until: `${o.name}の住民投票まで`, gauge: '賛成', yes: '賛成', no: '反対', opp: '反対派', oppRally: '反対集会', oppTag: '反対',
+      expect: `${o.name}との合併は、賛成の見込みが`, up: '賛成', count: `${o.name} 住民投票（${o.mine}との合併）`, verdict: ['可決', '否決'],
+      after: [`${o.name}はあなたの陣営に加わります。`, '関係度が下がり、2か月は再協議できません。'],
+      ev: { title: '新しい市の名前', lead: `地元紙が「新市名は『${o.mine}』で調整」と報じた。${o.name}の人たちに動揺が広がっている。`, a: '新市名は公募で決めると約束する', b: '新市名は合併後に住民と決めると答える' }
+    };
+    const who = o.defend ? '現職' : '候補';
+    return {
+      title: '首長選挙の決戦', until: `${o.name}の投票日まで`, gauge: '得票', yes: 'こちら', no: o.rival.replace(/陣営$/, ''), opp: '相手陣営', oppRally: '相手の決起集会', oppTag: '相手',
+      expect: `${o.name}の首長選挙は、あなたの陣営の${who}の得票の見込みが`, up: '得票', count: `${o.name} 首長選挙（あなたの陣営の${who} 対 ${o.rival}）`, verdict: ['当選', '落選'],
+      after: o.defend ? [`現職が再選し、${o.name}を守りました。`, `${o.name}は${o.rival}に移ります。`] : [`${o.name}はあなたの陣営に加わります。`, '関係度が下がりました。次の選挙は4年後です。'],
+      ev: { title: '候補者討論会', lead: `地元のケーブルテレビで討論会。${o.rival}側が「その公約の財源はどこから出すのか」と迫った。`, a: '行財政の見直しで生み出すと具体的に答える', b: '住民と一緒に優先順位を決めると答える' }
+    };
+  }
 
   // ---------- 地区をつくる ----------
   // 地図の市町村の形の中に点を敷き、近いもの同士でまとめて地区にする。中心部（地図の名前の位置）と方角で名前をつける
@@ -115,7 +134,7 @@
 
   // ---------- 開く・閉じる ----------
   function start(o, onDone) {
-    opts = o; done = onDone;
+    opts = o; done = onDone; words = wordsOf(o);
     TUNE.boost = clamp(BAL.boostBase + (50 - o.expect) * BAL.boostSlope, 0.8, 2);
     let seen = false; try { seen = localStorage.getItem(TUT_KEY) === '1'; } catch (e) { /* 覚えられなくても遊べる */ }
     o.tutorial = !seen;
@@ -148,7 +167,7 @@
       const amt = def.amt(p.val);
       return { id: 's' + i, who: p.name, kind: def.kind, label: def.label, note: def.note(amt), amt, cd: def.cd, target: def.target, color: SKILL_COLORS[i] };
     });
-    if (o.adv) list.push({ id: 'adv', who: o.adv.name, kind: 'freeze', label: `${advShort(o.adv.name)}の策`, note: '反対派を6秒止める', cd: 0, target: 'none', once: true, color: '#a8701a', say: o.adv.say });
+    if (o.adv) list.push({ id: 'adv', who: o.adv.name, kind: 'freeze', label: `${advShort(o.adv.name)}の策`, note: `${words.opp}を6秒止める`, cd: 0, target: 'none', once: true, color: '#a8701a', say: o.adv.say });
     return list;
   }
 
@@ -158,15 +177,15 @@
   function build() {
     el = document.createElement('div');
     el.className = 'battle';
-    el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', '住民投票の決戦');
+    el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', words.title);
     el.innerHTML = `<div class="bt-app">
       <div class="bt-top">
         <div class="bt-row">
-          <div class="bt-ttl"><small>${opts.name}の住民投票まで</small><b>住民投票の決戦</b></div>
+          <div class="bt-ttl"><small>${words.until}</small><b>${words.title}</b></div>
           <div class="bt-timer num" id="btTimer">${TIME}</div>
           <button class="bt-ghost" id="btPause" type="button">止める</button>
         </div>
-        <div class="bt-gauge"><span>賛成</span><div class="bt-bar"><div class="yes" id="btYes"></div><div class="mid"></div><span class="lab">賛成</span><span class="lab r">反対</span></div><b class="num" id="btPct"></b></div>
+        <div class="bt-gauge"><span>${words.gauge}</span><div class="bt-bar"><div class="yes" id="btYes"></div><div class="mid"></div><span class="lab">${words.yes}</span><span class="lab r">${words.no}</span></div><b class="num" id="btPct"></b></div>
       </div>
       <div class="bt-board" id="btBoard"><canvas id="btCv" aria-label="${opts.name}の地区と道。自分の地区から隣の地区へなぞると運動員が向かう"></canvas>
         <div class="bt-banner" id="btBanner"></div><div class="bt-toast" id="btToast" hidden><span id="btToastText"></span></div></div>
@@ -241,7 +260,7 @@
     burst(n.px, n.py, side === 'me' ? C.me : C['b-opp'], 26, 3.2);
     st.shake = reduce() ? 0 : 7;
     st.floats.push({ x: n.px, y: n.py - n.r - 8, text: side === 'me' ? '制圧！' : '奪われた', color: side === 'me' ? C.me : C['b-opp'], life: 1.4, big: true });
-    toast(side === 'me' ? `${n.name}を押さえた（賛成 ${effLean(n).toFixed(0)}％）` : `反対派が${n.name}を${prev === 'me' ? '奪い返した' : '押さえた'}`);
+    toast(side === 'me' ? `${n.name}を押さえた（${words.up} ${effLean(n).toFixed(0)}％）` : `${words.opp}が${n.name}を${prev === 'me' ? '奪い返した' : '押さえた'}`);
     if (st.tut && side === 'me' && !st.tut.capShown) { st.tut.capShown = true; say('押さえた地区は、時間とともに人が増えていく', { node: n.id }, 3000); }
   }
   function burst(x, y, color, k, sp) {
@@ -276,7 +295,7 @@
     if (!mine.length) return;
     const n = mine.sort((p, q) => p.count - q.count)[0];
     n.count += TUNE.rallyAmt;
-    st.floats.push({ x: n.px, y: n.py - n.r - 6, text: '反対集会 +' + TUNE.rallyAmt, color: C['b-opp'], life: 1.4 });
+    st.floats.push({ x: n.px, y: n.py - n.r - 6, text: words.oppRally + ' +' + TUNE.rallyAmt, color: C['b-opp'], life: 1.4 });
   }
 
   // 手引きの吹き出し。at は地区（node）か運動員の列（squad）か画面の位置（x, y）
@@ -286,7 +305,7 @@
     if (!T || T.stage === 'drag') return;
     if (!T.oppShown) {
       const s = st.squads.find(q => q.owner === 'opp' && q.t > 0.12);
-      if (s) { T.oppShown = true; st.slowUntil = performance.now() + 2800; say('反対派の列。道でぶつかると、同じ数ずつ減る', { squad: s }, 2800); }
+      if (s) { T.oppShown = true; st.slowUntil = performance.now() + 2800; say(`${words.opp}の列。道でぶつかると、同じ数ずつ減る`, { squad: s }, 2800); }
     }
     if (!T.skillShown && st.t >= 22) {
       T.skillShown = true;
@@ -566,7 +585,7 @@
       if (st.cds[s.id] > 0 || (s.once && st.spent[s.id])) return;
       if (s.target === 'none') { useSkill(s.id, null); return; }
       st.armed = st.armed === s.id ? null : s.id;
-      hint(st.armed ? (s.target === 'mine' ? `${s.label}：自分の地区を押す` : `${s.label}：反対派か、まだどちらでもない地区を押す`) : HINT);
+      hint(st.armed ? (s.target === 'mine' ? `${s.label}：自分の地区を押す` : `${s.label}：${words.opp}か、まだどちらでもない地区を押す`) : HINT);
       renderSkills();
     });
     $('btPause').addEventListener('click', () => {
@@ -613,11 +632,11 @@
 
   function intro() {
     const side = st.nodes.find(n => n.owner === 'me'), center = st.nodes.find(n => n.center);
-    openSheet(`<div class="eyebrow">住民投票の決戦</div><h2>90秒で、${opts.name}の地区を押さえる</h2>
-      <p>${opts.name}との合併は、賛成の見込みが <b class="num">${opts.expect.toFixed(1)}％</b> です。地区を押さえるほど、その地区の賛成が上がります。人口の多い${center.name}を取れるかが勝負です。${side ? `いまは${opts.mine}寄りの${side.name}を押さえています。` : ''}</p>
+    openSheet(`<div class="eyebrow">${words.title}</div><h2>90秒で、${opts.name}の地区を押さえる</h2>
+      <p>${words.expect} <b class="num">${opts.expect.toFixed(1)}％</b> です。地区を押さえるほど、その地区の${words.up}が上がります。人口の多い${center.name}を取れるかが勝負です。${side ? `いまは${opts.mine}寄りの${side.name}を押さえています。` : ''}</p>
       ${st.tut ? '<p>最初の1手は案内します。</p>' : `<ul class="bt-how">
         <li><span class="k" style="background:var(--me)">1</span><span><b>朱の地区から隣の地区へなぞる</b>と、運動員の半分が道を走っていく。相手より多く着けばその地区を押さえられる</span></li>
-        <li><span class="k" style="background:var(--b-opp)">2</span><span>反対派も攻めてくる。道の途中でぶつかると、同じ数ずつ減る</span></li>
+        <li><span class="k" style="background:var(--b-opp)">2</span><span>${words.opp}も攻めてくる。道の途中でぶつかると、同じ数ずつ減る</span></li>
         <li><span class="k" style="background:var(--warn)">3</span><span>下の人材の技は、押してから地区を押す</span></li></ul>`}
       <div class="bt-btns"><button class="secondary" type="button" data-cmd="auto">おまかせ</button><button class="primary" type="button" data-cmd="begin">決戦開始</button></div>
       <p class="bt-note">おまかせは、いままでと同じ計算（見込み±10％の運）で決めます。メニューで決戦をしない設定にもできます。</p>`);
@@ -628,11 +647,11 @@
     st.eventFx = { a: { [center.id]: 12, [side.id]: side === center ? 0 : -4 }, b: {}, c: { [center.id]: -10 } };
     const others = st.nodes.filter(n => !n.center).slice(0, 2);
     st.eventFx.b[center.id] = 6; for (const n of others) st.eventFx.b[n.id] = 3;
-    openSheet(`<div class="eyebrow">論点が持ち上がった（時間は止まっています）</div><h2>新しい市の名前</h2><p>地元紙が「新市名は『${opts.mine}』で調整」と報じた。${opts.name}の人たちに動揺が広がっている。</p>
+    openSheet(`<div class="eyebrow">論点が持ち上がった（時間は止まっています）</div><h2>${words.ev.title}</h2><p>${words.ev.lead}</p>
       <div class="bt-acts">
-        <button class="bt-act" type="button" data-choice="a"><b>新市名は公募で決めると約束する</b><small>${center.name}に +12${side !== center ? `（${side.name}は −4）` : ''}</small></button>
-        <button class="bt-act" type="button" data-choice="b"><b>新市名は合併後に住民と決めると答える</b><small>${center.name}に +6、${others.map(n => n.name).join('・')}に +3</small></button>
-        <button class="bt-act" type="button" data-choice="c"><b>取り合わない</b><small>反対派が${center.name}に +10</small></button>
+        <button class="bt-act" type="button" data-choice="a"><b>${words.ev.a}</b><small>${center.name}に +12${side !== center ? `（${side.name}は −4）` : ''}</small></button>
+        <button class="bt-act" type="button" data-choice="b"><b>${words.ev.b}</b><small>${center.name}に +6、${others.map(n => n.name).join('・')}に +3</small></button>
+        <button class="bt-act" type="button" data-choice="c"><b>取り合わない</b><small>${words.opp}が${center.name}に +10</small></button>
       </div>`);
   }
   function chooseEvent(k) {
@@ -672,15 +691,15 @@
       const list = rows.map((r, i) => {
         const open = i < k; if (open) { Y += r.y; N += r.no; }
         const p = r.y / Math.max(1, r.y + r.no) * 100;
-        const own = r.own === 'me' ? '<span class="own" style="background:var(--me)">味方</span>' : r.own === 'opp' ? '<span class="own" style="background:var(--b-opp)">反対</span>' : '<span class="own" style="background:var(--b-neutral);color:var(--ink)">中立</span>';
+        const own = r.own === 'me' ? '<span class="own" style="background:var(--me)">味方</span>' : r.own === 'opp' ? `<span class="own" style="background:var(--b-opp)">${words.oppTag}</span>` : '<span class="own" style="background:var(--b-neutral);color:var(--ink)">中立</span>';
         return `<div class="bt-crow ${open ? 'open' : ''}"><span>${r.n.name}</span>${own}<span class="mini"><i style="width:${open ? p : 0}%"></i></span><span class="num" style="text-align:right">${open ? p.toFixed(1) + '％' : '…'}</span></div>`;
       }).join('');
       const fin = k >= rows.length, pass = Y > N, tp = Y + N ? Y / (Y + N) * 100 : 0;
-      openSheet(`<div class="eyebrow">開票</div><h2>${opts.name} 住民投票（${opts.mine}との合併）</h2>
+      openSheet(`<div class="eyebrow">開票</div><h2>${words.count}</h2>
         <div class="bt-count">${list}</div>
-        <div class="bt-total"><span>賛成 <b class="num">${Y.toLocaleString()}</b></span><span>反対 <b class="num">${N.toLocaleString()}</b></span></div>
-        ${fin ? `<div class="bt-verdict ${pass ? 'pass' : 'fail'}">${pass ? '可決' : '否決'}</div>
-          <p>賛成 ${tp.toFixed(1)}％・投票率 ${(turnout * 100).toFixed(1)}％。${why === 'sweep' ? '反対派の地区をすべて押さえた。' : why === 'wiped' ? '味方の地区をすべて失った。' : ''}${pass ? `${opts.name}はあなたの陣営に加わります。` : '関係度が下がり、2か月は再協議できません。'}</p>
+        <div class="bt-total"><span>${words.yes} <b class="num">${Y.toLocaleString()}</b></span><span>${words.no} <b class="num">${N.toLocaleString()}</b></span></div>
+        ${fin ? `<div class="bt-verdict ${pass ? 'pass' : 'fail'}">${words.verdict[pass ? 0 : 1]}</div>
+          <p>${words.up} ${tp.toFixed(1)}％・投票率 ${(turnout * 100).toFixed(1)}％。${why === 'sweep' ? `${words.opp}の地区をすべて押さえた。` : why === 'wiped' ? '味方の地区をすべて失った。' : ''}${words.after[pass ? 0 : 1]}</p>
           <div class="bt-btns"><button class="primary" type="button" data-cmd="done">次へ</button></div>`
         : `<div class="bt-btns"><button class="secondary" type="button" data-cmd="skip">すぐ結果を見る</button></div>`}`);
       if (!fin) setTimeout(() => { if (st === me) drawCount(st.skipCount || reduce() ? rows.length : k + 1); }, k === rows.length - 1 ? 1000 : 520);

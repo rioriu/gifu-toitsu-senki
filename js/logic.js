@@ -163,6 +163,7 @@
     });
     ensureStaff(st);
     ensureAdv(st);
+    ensureElect(st);
     st.ap = apMax(st, 0);
     st.aiAp = st.factions.map(f => apMax(st, f.id));
     const goal = st.mode === 'region' ? `${st.goal}圏域${regionCodes(st.goal).length}市町村の制覇` : '県内42市町村の統一';
@@ -687,6 +688,89 @@
     if (h === 0) { res.joins.push(step); res.news.push(`${G.name}が合流`); }
   }
 
+  // ---------- 首長選挙 ----------
+  // 各市町村で4年ごとに首長選挙がある。ほかの陣営の市町村には、投票日の3か月前から、隣り合う陣営が候補を立てられる。
+  // 立てた陣営と現職の陣営が演説会を重ねて得票を伸ばし、投票日の月末に開票する。候補が当選すると、その市町村は候補を立てた陣営に移る。
+  // 合併協議（満足度の差か45未満が必要）とちがい、選挙の時期を待てば、満足度の高い市町村でも狙える。現職は少し有利。
+  // 本拠地の首長は陣営の首長本人なので、本拠地には候補を立てられない（本拠地を失うのは合併だけ）
+  // ELECT_INC：現職の強み、ELECT_SAT・ELECT_REL：満足度の差と関係度の効き（選挙は住民の満足度で決まり、関係度は合併ほど効かない）
+  // RALLY_STEP：演説会1回で動く得票（％）、AI_ELECT：ライバルが候補を立てる見込み、AI_RALLY：ライバルが演説会を開く確率
+  const ELECT_TERM = 48, ELECT_WINDOW = 3, ELECT_INC = 12, ELECT_SAT = 0.5, ELECT_REL = 0.3, RALLY_STEP = 5, RALLY_MAX = 4, AI_ELECT = 44, AI_RALLY = 0.3;
+  // 投票日（その月末に開票する月）を市町村ごとにずらして決める。古いセーブにもここで付ける
+  function ensureElect(st) {
+    for (const c in st.m) {
+      const x = st.m[c];
+      if (x.elect !== undefined) continue;
+      let e = 3 + hash('elect' + c) % ELECT_TERM;
+      while (e < st.turn) e += ELECT_TERM;
+      x.elect = e;
+    }
+  }
+  // 投票日まであと何か月か（0 ならこの月末に開票）
+  function electLeft(st, c) { return st.m[c].elect - st.turn; }
+  // この月末に開票する、あなたの陣営が関わる選挙
+  function raceDue(st, c) { const r = st.m[c].race; return !!r && electLeft(st, c) === 0 && (r.ch === 0 || r.inc === 0); }
+  // 候補を立てた（立てようとする）陣営 f の得票の見込み（乱数の分を除く）
+  function electExpect(st, f, code) {
+    const x = st.m[code], r = x.race && x.race.ch === f ? x.race : null;
+    const rally = r ? (r.rally[f] - r.rally[r.inc]) * RALLY_STEP : 0;
+    return 50 - ELECT_INC + (avgSat(st, f) - x.sat) * ELECT_SAT + (st.rel[f][code] - 70) * ELECT_REL + roleVal(st, f, 'nego') / 12 + appealVote(st, f, code) + advVote(st, f, code) + rally;
+  }
+  // あなたの陣営から見た得票の見込み（現職なら守る側）
+  function electMine(st, code) { const r = st.m[code].race; const e = electExpect(st, r.ch, code); return r.ch === 0 ? e : 100 - e; }
+  // 開票：yes が候補を立てた陣営、no が現職の得票。決戦の結果があればそれを使う
+  function electVote(st, code) {
+    const x = st.m[code], r = x.race, b = r.battle;
+    if (b) return r.ch === 0 ? { yes: b.yes, no: b.no, turnout: b.turnout, battle: true } : { yes: b.no, no: b.yes, turnout: b.turnout, battle: true };
+    const share = clamp(electExpect(st, r.ch, code) + (rnd(st) * 20 - 10), 4, 96);
+    const turnout = 0.38 + rnd(st) * 0.25;
+    const cast = Math.round(x.pop * 1000 * 0.82 * turnout), y = Math.round(cast * share / 100);
+    return { yes: y, no: cast - y, turnout };
+  }
+  // 月末：投票日を迎えた市町村で開票する。候補のいない選挙は現職がそのまま続ける
+  function tickElections(st, names, res) {
+    const nm = k => k === 0 ? 'あなたの陣営' : st.factions[k].name;
+    for (const c in st.m) {
+      const x = st.m[c], r = x.race;
+      // 投票日までに持ち主が変わったり、候補を立てた陣営がなくなったら取りやめ
+      if (r && (x.owner !== r.inc || !st.factions[r.ch].alive)) x.race = null;
+      if (electLeft(st, c) !== 0) continue;
+      x.elect += ELECT_TERM;
+      if (!x.race) continue;
+      const v = electVote(st, c), ch = x.race.ch, prev = x.owner, rally = x.race.rally;
+      v.pass = v.yes > v.no;
+      x.race = null;
+      if (v.pass) {
+        addFeat(st, ch, 'steal');
+        x.owner = ch; x.pact = []; x.sat = clamp(x.sat + 3, 0, 100);
+        st.rel[ch][c] = Math.max(st.rel[ch][c], 60);
+        const joined = staffOnMerge(st, names, c, ch, prev);
+        if (joined.length) { v.joined = joined; addLog(st, `${names[c]}ゆかりの${joined.join('・')}が${nm(ch)}に加わりました`, ch === 0 ? 'good' : 'rival'); }
+        addLog(st, `${names[c]}の首長選挙は${nm(ch)}の候補が当選。${names[c]}は${nm(ch)}に移りました`, ch === 0 ? 'good' : (prev === 0 ? 'bad' : 'rival'));
+        loseTown(st, names, prev);
+      } else {
+        st.rel[ch][c] = clamp(st.rel[ch][c] - 10, 0, 100); x.sat = clamp(x.sat + 2, 0, 100);
+        addLog(st, `${names[c]}の首長選挙は現職（${nm(prev)}）が再選。${nm(ch)}の候補は落選`, prev === 0 ? 'good' : (ch === 0 ? 'bad' : 'rival'));
+      }
+      const step = { kind: 'elect', code: c, f: v.pass ? ch : prev, ch, prev, rally, ...v };
+      res.steps.push(step);
+      if (ch === 0 || prev === 0) {
+        res.elects.push(step);
+        res.news.push(`${names[c]}の首長選挙で${(ch === 0) === v.pass ? '勝利' : '敗北'}`);
+      }
+    }
+  }
+  // 市町村を失った陣営：本拠地だったら移し、ひとつもなくなったら退場
+  function loseTown(st, names, prev) {
+    if (prev < 0) return;
+    const P = st.factions[prev], left = owned(st, prev);
+    if (prev > 0 && left.length && st.m[P.capital].owner !== prev) {
+      P.capital = left.sort((a, b) => st.m[b].pop - st.m[a].pop)[0];
+      addLog(st, `${P.name}は本拠地を${names[P.capital]}に移しました`, 'rival');
+    }
+    if (!left.length) { P.alive = false; addLog(st, `${P.name}はすべての市町村を失いました`, 'info'); }
+  }
+
   function upkeep(st, f) { return Math.round(owned(st, f).reduce((s, c) => s + 0.8 + st.m[c].pop * 0.012, 0) + staffUpkeep(st, f)); }
   function seasonX(code, month) {
     const s = SEASON[INFO[code][2]];
@@ -725,7 +809,9 @@
     counter: { label: '対抗提案', ap: 2, own: false, note: 'ほかの陣営の協議に割り込み、条件を競う' },
     raise: { label: '条件を上乗せ', ap: 1, own: false, note: '競り合いで選ばれやすくなる' },
     keep: { label: '引き留め', ap: 1, own: false, note: '住民投票の賛成 −5・満足度 +3' },
-    lure: { label: '補助金を上乗せ', ap: 1, own: false, note: '誘致合戦で選ばれやすくなる。負けたら戻る' }
+    lure: { label: '補助金を上乗せ', ap: 1, own: false, note: '誘致合戦で選ばれやすくなる。負けたら戻る' },
+    run: { label: '候補を擁立', ap: 2, own: false, note: '首長選挙で当選すれば、この市町村が自陣営に移る' },
+    rally: { label: '演説会', ap: 1, own: false, note: `首長選挙の得票 +${RALLY_STEP}` }
   };
 
   // 予算規模：お金を多く使うほど効果が大きい（ただし割高）
@@ -758,6 +844,8 @@
       case 'raise': return Math.round(4 + p * 0.06);
       case 'keep': return Math.round(3 + p * 0.04);
       case 'lure': return st.lure ? st.lure.step : 0;
+      case 'run': return Math.round(6 + p * 0.08);
+      case 'rally': return Math.round(3 + p * 0.04);
     }
     return 0;
   }
@@ -790,6 +878,12 @@
       if (lureBid(st, f) >= LURE_MAX) return { ok: false, reason: `補助金は${LURE_MAX}段までです` };
       return { ok: true, cost };
     }
+    if (cmd === 'rally') {
+      const r = x.race;
+      if (!r || (r.ch !== f && r.inc !== f)) return { ok: false, reason: 'この市町村の首長選挙に候補を立てていません' };
+      if (r.rally[f] >= RALLY_MAX) return { ok: false, reason: `演説会は${RALLY_MAX}回までです` };
+      return { ok: true, cost };
+    }
     if (cmd === 'keep') {
       if (x.owner !== f) return { ok: false, reason: '自陣営の市町村だけで使えます' };
       if (!x.talk || inTalk(x.talk, f)) return { ok: false, reason: 'ほかの陣営から合併協議をかけられていません' };
@@ -816,6 +910,16 @@
       if (rel < 50) return { ok: false, reason: `関係度が50に届いていません（現在${Math.round(rel)}）` };
       return { ok: true, cost };
     }
+    if (cmd === 'run') {
+      if (x.owner === -1) return { ok: false, reason: '独立の市町村には候補を立てられません（合併協議で迎えます）' };
+      const left = electLeft(st, code);
+      if (left >= ELECT_WINDOW) return { ok: false, reason: `首長選挙は${dateOf(x.elect).label}。投票日の${ELECT_WINDOW}か月前から候補を立てられます` };
+      if (x.race) return { ok: false, reason: x.race.ch === f ? 'すでに候補を立てています' : `${st.factions[x.race.ch].name}が候補を立てています` };
+      if (t) return { ok: false, reason: '合併協議の最中は候補を立てられません' };
+      if (st.factions[x.owner].capital === code) return { ok: false, reason: '本拠地の首長は陣営の首長本人なので、候補を立てられません' };
+      if (rel < 50) return { ok: false, reason: `関係度が50に届いていません（現在${Math.round(rel)}）` };
+      return { ok: true, cost };
+    }
     if (cmd === 'raise') {
       if (!t || t.rival === undefined) return { ok: false, reason: '条件の競り合いが起きていません' };
       if (!inTalk(t, f)) return { ok: false, reason: 'この競り合いには参加していません' };
@@ -824,6 +928,7 @@
     }
     if (cmd === 'talk' || cmd === 'counter') {
       if (cmd === 'talk' && t) return { ok: false, reason: inTalk(t, f) ? '合併協議の最中です' : 'ほかの陣営と協議中です。対抗提案で割り込めます' };
+      if (x.race) return { ok: false, reason: '首長選挙の最中です。投票日のあとに申し入れできます' };
       if (cmd === 'counter') {
         if (!t) return { ok: false, reason: 'ほかの陣営の協議が進んでいません' };
         if (inTalk(t, f)) return { ok: false, reason: '自陣営の協議です' };
@@ -875,6 +980,8 @@
         const t = x.talk; t.bids[f]++;
         return `${who}${n}への条件を上乗せ（${t.bids[f]}段目）`;
       }
+      case 'run': x.race = { ch: f, inc: x.owner, rally: { [f]: 0, [x.owner]: 0 } }; return `${who}${n}の首長選挙に候補を擁立（${dateOf(x.elect).label}投票）`;
+      case 'rally': { const r = x.race; r.rally[f]++; return `${who}${n}で${r.ch === f ? '候補の' : '現職の'}演説会（${r.rally[f]}回目）`; }
       case 'lure': {
         const L = st.lure, b = L.bids[f] || (L.bids[f] = { site: code, n: 0, paid: 0 });
         b.site = code; b.n++; b.paid += cost;
@@ -897,7 +1004,8 @@
       if (!r.ok) return false;
       ap -= CMDS[cmd].ap;
       const t0 = st.m[code].talk;
-      const vsMe = (['counter', 'raise', 'keep'].includes(cmd) && !!t0 && (t0.f === 0 || t0.rival === 0)) || (cmd === 'lure' && !!st.lure.bids[0]);
+      const vsMe = (['counter', 'raise', 'keep'].includes(cmd) && !!t0 && (t0.f === 0 || t0.rival === 0)) || (cmd === 'lure' && !!st.lure.bids[0])
+        || ((cmd === 'run' || cmd === 'rally') && !!st.m[code].race && (st.m[code].race.ch === 0 || st.m[code].race.inc === 0));
       out.push({ text: doCmd(st, names, f, cmd, code, sc), code, cmd, f, vsMe });
       return true;
     };
@@ -913,6 +1021,19 @@
         if (lureScore(st, adj, f) > best + LURE_PT / 2 || lureBid(st, f) >= cap) break;
         if (fac.money - cmdCost(st, 'lure', site, undefined, f) < 25 || rnd(st) < 0.15 || !tryDo('lure', site)) break;
       }
+    }
+    // 首長選挙：関わっている選挙で負けそうなら演説会。隣の陣営の市町村は、見込みが立てば候補を立てる
+    for (const c in st.m) {
+      const r = st.m[c].race;
+      if (ap <= 0) break;
+      if (!r || (r.ch !== f && r.inc !== f) || r.rally[f] >= RALLY_MAX) continue;
+      const e = electExpect(st, r.ch, c), mine = r.ch === f ? e : 100 - e;
+      if (mine < 56 && fac.money > cmdCost(st, 'rally', c, undefined, f) * 2 && rnd(st) < AI_RALLY) tryDo('rally', c);
+    }
+    if (ap >= CMDS.run.ap && rnd(st) < 0.5) {
+      const cand = Object.keys(st.m).filter(c => st.m[c].owner >= 0 && st.m[c].owner !== f && electLeft(st, c) < ELECT_WINDOW && electExpect(st, f, c) >= AI_ELECT
+        && fac.money > cmdCost(st, 'run', c, undefined, f) * 3 && canDo(st, adj, f, 'run', c, ap).ok).sort((a, b) => electExpect(st, f, b) - electExpect(st, f, a));
+      if (cand.length) tryDo('run', cand[0]);
     }
     // 隣り合うほかの陣営の、いちばん高い平均満足度（切り崩されやすさを見る）
     const rivalSat = c => st.factions.reduce((m, o) => o.id !== f && o.alive && adjacentTo(st, adj, c, o.id) ? Math.max(m, avgSat(st, o.id)) : m, 0);
@@ -1002,6 +1123,7 @@
   // 決戦の結果は協議に書いておき、月末の住民投票は乱数の代わりにそれを使う。書いていなければ今まで通り（おまかせ・ボット）
   const BATTLE_MIN = 30, BATTLE_MAX = 70;
   function battleExpect(st, code) {
+    if (raceDue(st, code)) return electMine(st, code);
     const x = st.m[code], t = x.talk;
     const keep = x.owner >= 0 && x.owner !== 0 ? (t.keep || 0) : 0;
     return voteExpect(st, 0, code, -keep * KEEP_STEP);
@@ -1009,6 +1131,7 @@
   // この月末に住民投票になる自陣営の協議のうち、決戦にするもの（競り合いは除く）
   function battlesDue(st) {
     return Object.keys(st.m).filter(c => {
+      if (raceDue(st, c)) { const e = electMine(st, c); return !st.m[c].race.battle && e >= BATTLE_MIN && e <= BATTLE_MAX; }
       const t = st.m[c].talk;
       if (!t || t.f !== 0 || t.left !== 1 || t.rival !== undefined || t.battle) return false;
       const e = battleExpect(st, c);
@@ -1016,21 +1139,25 @@
     });
   }
   function setBattle(st, code, r) {
+    if (raceDue(st, code)) { st.m[code].race.battle = { yes: r.yes, no: r.no, turnout: r.turnout }; return; }
     const t = st.m[code].talk;
     if (t && t.f === 0) t.battle = { yes: r.yes, no: r.no, turnout: r.turnout };
   }
 
   // 月を終える
   function endTurn(st, adj, names) {
-    const res = { votes: [], news: [], steps: [], lures: [], joins: [] };
+    const res = { votes: [], news: [], steps: [], lures: [], joins: [], elects: [] };
     if (st.over) return res;
     ensureStaff(st);
     ensureAdv(st);
+    ensureElect(st);
     // ライバルの行動
     for (const fac of st.factions) {
       if (!fac.ai || !fac.alive) continue;
       for (const t of aiAct(st, adj, names, fac.id)) {
-        addLog(st, t.text, 'rival');
+        const vsMine = t.cmd === 'run' && st.m[t.code].owner === 0;
+        addLog(st, t.text, vsMine ? 'bad' : 'rival');
+        if (vsMine) res.news.push(`${names[t.code]}に対立候補`);
         res.steps.push({ kind: 'rival', ...t, mine: st.m[t.code].owner === 0 });
       }
     }
@@ -1070,15 +1197,7 @@
         const joined = staffOnMerge(st, names, c, f, prev);
         if (joined.length) { v.joined = joined; addLog(st, `${names[c]}ゆかりの${joined.join('・')}が${f === 0 ? 'あなたの陣営' : fac.name}に加わりました`, f === 0 ? 'good' : 'rival'); }
         addLog(st, `住民投票で${names[c]}が${f === 0 ? 'あなたの陣営' : fac.name}への編入を可決`, f === 0 ? 'good' : (prev === 0 ? 'bad' : 'rival'));
-        if (prev > 0 && st.factions[prev].capital === c && owned(st, prev).length > 0) {
-          const nc = owned(st, prev).sort((a, b) => st.m[b].pop - st.m[a].pop)[0];
-          st.factions[prev].capital = nc;
-          addLog(st, `${st.factions[prev].name}は本拠地を${names[nc]}に移しました`, 'rival');
-        }
-        if (prev >= 0 && owned(st, prev).length === 0) {
-          st.factions[prev].alive = false;
-          addLog(st, `${st.factions[prev].name}はすべての市町村を失いました`, 'info');
-        }
+        loseTown(st, names, prev);
       } else {
         x.cool[f] = 2; st.rel[f][c] = clamp(st.rel[f][c] - 20, 0, 100);
         addLog(st, `${names[c]}の住民投票は否決（${f === 0 ? 'あなたの陣営' : fac.name}との合併）`, f === 0 ? 'bad' : 'rival');
@@ -1086,6 +1205,8 @@
       if (f === 0 || prev === 0 || (contest && contest.loser === 0)) res.votes.push({ code: c, f, prev, ...v });
       res.steps.push({ kind: 'vote', code: c, f, prev, ...v });
     }
+    // 首長選挙の開票
+    tickElections(st, names, res);
     // 誘致合戦の決着
     tickLure(st, adj, names, res);
     // 小さくなったライバルの合流
@@ -1135,7 +1256,7 @@
     // 勝敗
     const me = st.factions[0];
     const mine = owned(st, 0);
-    if (st.m[me.capital].owner !== 0) st.over = { win: false, text: `本拠地の${names[me.capital]}がほかの陣営に編入されました。` };
+    if (st.m[me.capital].owner !== 0) st.over = { win: false, text: `本拠地の${names[me.capital]}がほかの陣営に移りました。` };
     else if (me.negMonths >= 3) st.over = { win: false, text: '財源のマイナスが3か月続き、財政破綻となりました。' };
     else if (avgSat(st, 0) < 20) st.over = { win: false, text: '住民満足度が20を下回り、リコールが成立しました。' };
     else if (mine.length === Object.keys(st.m).length) st.over = { win: true, text: `${d.label}、岐阜県42市町村の統一を達成しました。` };
@@ -1209,7 +1330,7 @@
     }
   }
 
-  const api = { BATTLE_MIN, BATTLE_MAX, battleExpect, battlesDue, setBattle, JOIN_TOWNS, JOIN_RATIO, JOIN_SAT, AI_GUARD, voteExpect, AI_IDLE, FIRMS, LURE_MONTHS, LURE_PT, LURE_MAX, firmInc, sitePoint, lureSite, lureBid, lureScore, lureParts, lureRows, ADVISORS, ADV_BY_ID, ADV_MONTHS, ADV_COOL, ADV_SLOT2, ensureAdv, advCond, advMeasure, advOf, advFx, advBonus, advMax, advUsed, advHolder, canInviteAdv, inviteAdv, advise, advVote, regionLength, talksMax, APPEAL_TALKS, appeal, appealOf, appealRel, appealVote, INFO, REGIONS, MODES, regionCodes, goalOf, continueToUnify, CMDS, dateOf, difficultyOf, newGame, owned, apMax, totalPop, avgSat, incomeOf,
+  const api = { ELECT_TERM, ELECT_WINDOW, RALLY_STEP, RALLY_MAX, ensureElect, electLeft, electExpect, electMine, raceDue, BATTLE_MIN, BATTLE_MAX, battleExpect, battlesDue, setBattle, JOIN_TOWNS, JOIN_RATIO, JOIN_SAT, AI_GUARD, voteExpect, AI_IDLE, FIRMS, LURE_MONTHS, LURE_PT, LURE_MAX, firmInc, sitePoint, lureSite, lureBid, lureScore, lureParts, lureRows, ADVISORS, ADV_BY_ID, ADV_MONTHS, ADV_COOL, ADV_SLOT2, ensureAdv, advCond, advMeasure, advOf, advFx, advBonus, advMax, advUsed, advHolder, canInviteAdv, inviteAdv, advise, advVote, regionLength, talksMax, APPEAL_TALKS, appeal, appealOf, appealRel, appealVote, INFO, REGIONS, MODES, regionCodes, goalOf, continueToUnify, CMDS, dateOf, difficultyOf, newGame, owned, apMax, totalPop, avgSat, incomeOf,
     factionIncome, grantOf, tagInfo, upkeep, cmdCost, cmdEffect, SCALES, SCALABLE, gradeOf, GRADE_PAY, faceOf, SCOUT, canScout, scout, ROLES, ABIL, ensureStaff, staffOf, staffMax, abil, roleVal, hireCandidates, hireCost, canHire, hire, assignRole, autoAssign, staffUpkeep, aiStaff, inTalk, BID_MAX, KEEP_MAX, KEEP_STEP, canDo, doCmd, endTurn, adjacentTo, talksOf, seasonX, clamp };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.GameLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);
