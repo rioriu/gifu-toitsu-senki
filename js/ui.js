@@ -229,9 +229,64 @@ function renderStatus() {
   const unread = S.log.length - seenLog; const bd = $('newsBadge');
   bd.hidden = unread <= 0; bd.textContent = unread > 99 ? '99+' : unread;
 }
-function meter(label, v, cls) {
+function meter(label, v, cls, key) {
   v = Math.round(v);
-  return `<div class="meter"><span>${label}</span><div class="bar ${cls || ''}${v < 30 && cls !== 'rel' ? ' low' : ''}"><i style="width:${v}%"></i></div><b class="num">${v}</b></div>`;
+  return `<div class="meter"${key ? ` data-stat="${key}"` : ''}><span>${label}</span><div class="bar ${cls || ''}${v < 30 && cls !== 'rel' ? ' low' : ''}"><i style="width:${v}%"></i></div><b class="num">${v}</b></div>`;
+}
+// 関係度のゲージ。次の段階（独立なら協定・協議、ほかの陣営なら擁立・切り崩し）の目盛りを添える
+function relGauge(c) {
+  const x = S.m[c], v = Math.round(S.rel[0][c]), indep = x.owner < 0;
+  const marks = indep ? [[50, '協定'], [70, '協議']] : [[50, '擁立'], [60, '切り崩し']];
+  const hint = !L.adjacentTo(S, ADJ, c, 0) ? '隣り合うと交流できます'
+    : indep ? (v < 50 ? `連携協定まであと${50 - v}` : !x.pact.includes(0) ? '連携協定を結べます' : v < 70 ? `合併協議まであと${70 - v}` : '合併協議を申し入れられます')
+    : (v < 50 ? `候補の擁立まであと${50 - v}` : v < 60 ? `切り崩しまであと${60 - v}` : '切り崩せる関係度です');
+  return `<div class="relg" data-stat="rel"><div class="relg-top"><span>関係度</span><b class="num">${v}</b><small>${hint}</small></div>
+    <div class="relg-bar"><i style="width:${v}%"></i>${marks.map(([at, lb]) => `<span class="mk${v >= at ? ' on' : ''}" style="left:${at}%" data-at="${at}"><em>${lb}</em></span>`).join('')}</div></div>`;
+}
+// コマンドで動いた数値を、地図の上の吹き出しと、ゲージが伸びる動きで見せる
+const STAT_LABEL = { rel: '関係度', ind: '産業力', tour: '観光力', sat: '満足度', dis: '防災力' };
+function statsOf(c) { const x = S.m[c]; return { rel: S.rel[0][c], ind: x.ind, tour: x.tour, sat: x.sat, dis: x.dis }; }
+function showGain(c, before) {
+  const after = statsOf(c), still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const moved = Object.keys(after).filter(k => Math.round(after[k]) !== Math.round(before[k]));
+  moved.forEach((k, i) => {
+    const d = Math.round(after[k]) - Math.round(before[k]), txt = (d > 0 ? '+' : '−') + Math.abs(d);
+    mapPop(c, `${STAT_LABEL[k]} ${txt}`, d < 0, i);
+    for (const el of $('sheet').querySelectorAll(`[data-stat="${k}"]`)) growBar(el, before[k], after[k], txt, d < 0, still);
+  });
+  if (moved.length && !still) {
+    const pg = $('pulse'); pg.textContent = '';
+    const p = document.createElementNS(NS, 'path'); p.setAttribute('d', BYCODE[c].d); p.setAttribute('class', 'pulse');
+    p.style.fill = p.style.stroke = 'var(--me)'; pg.appendChild(p);
+    setTimeout(() => { if (pg.firstChild === p) pg.textContent = ''; }, 1400);
+  }
+}
+function growBar(el, from, to, txt, down, still) {
+  const bar = el.querySelector('i'), num = el.querySelector('b');
+  const pop = document.createElement('span'); pop.className = 'gain' + (down ? ' down' : ''); pop.textContent = txt;
+  if (el.classList.contains('relg')) num.after(pop); else el.appendChild(pop);
+  if (still) return;
+  const dur = 900;
+  bar.style.transition = 'none'; bar.style.width = from + '%'; bar.getBoundingClientRect();
+  bar.style.transition = `width ${dur}ms cubic-bezier(.2,.8,.2,1)`; bar.style.width = to + '%';
+  // 目盛りを越えたら、届いた瞬間に光らせる
+  for (const mk of el.querySelectorAll('.mk')) {
+    const at = Number(mk.dataset.at);
+    if (from < at && to >= at) { mk.classList.remove('on'); setTimeout(() => mk.classList.add('on', 'hit'), dur * Math.min(1, (at - from) / (to - from))); }
+  }
+  const a = Math.round(from), b = Math.round(to), t0 = performance.now();
+  const step = now => { const k = Math.min(1, (now - t0) / dur); num.textContent = Math.round(a + (b - a) * (1 - Math.pow(1 - k, 3))); if (k < 1 && num.isConnected) requestAnimationFrame(step); };
+  requestAnimationFrame(step);
+}
+// 市町村の名前の少し上に、上がった数値を浮かべる
+function mapPop(c, text, down, i) {
+  const ctm = svg.getScreenCTM(); if (!ctm) return;
+  const pt = svg.createSVGPoint(); pt.x = BYCODE[c].lx; pt.y = BYCODE[c].ly;
+  const q = pt.matrixTransform(ctm), w = $('mapwrap').getBoundingClientRect();
+  const el = document.createElement('div'); el.className = 'mappop' + (down ? ' down' : ''); el.textContent = text;
+  el.style.left = (q.x - w.left) + 'px'; el.style.top = (q.y - w.top - 18 - i * 26) + 'px';
+  $('mapwrap').appendChild(el);
+  setTimeout(() => el.remove(), 1700);
 }
 // 台帳は名前・要点・コマンドだけを出し、数値や説明は「詳細」を押したときだけ開く
 let detailOpen = false;
@@ -334,10 +389,10 @@ function renderSheet() {
   }).join('');
   // 一行に収まる要点だけ。他陣営・独立なら関係度、自陣営なら満足度を先に出す
   const line = (mine ? `満足度 ${Math.round(x.sat)} · 魅力 ${Math.round(L.appealOf(S, c))} · 収入 ${L.incomeOf(S, c, month).toFixed(1)}億円`
-    : `関係度 ${Math.round(S.rel[0][c])} · 満足度 ${Math.round(x.sat)} · 人口 ${x.pop.toFixed(0)}千人`) + (alert ? ` <b class="alert">${alert}</b>` : '');
+    : `満足度 ${Math.round(x.sat)} · 人口 ${x.pop.toFixed(0)}千人`) + (alert ? ` <b class="alert">${alert}</b>` : '');
   sheetFrame(`<h2>${NAMES[c]}</h2>${ownerTag}<span class="tag">${info[0]}</span>`, line,
-    `${cmds.some(k => L.SCALABLE.includes(k)) ? budgetHtml() : ''}<div class="cmds">${btns}</div>`,
-    `<div class="meters">${meter('産業力', x.ind)}${meter('観光力', x.tour)}${meter('満足度', x.sat)}${meter('防災力', x.dis)}${mine ? '' : meter('関係度', S.rel[0][c], 'rel')}</div>
+    `${mine ? '' : relGauge(c)}${cmds.some(k => L.SCALABLE.includes(k)) ? budgetHtml() : ''}<div class="cmds">${btns}</div>`,
+    `<div class="meters">${meter('産業力', x.ind, '', 'ind')}${meter('観光力', x.tour, '', 'tour')}${meter('満足度', x.sat, '', 'sat')}${meter('防災力', x.dis, '', 'dis')}</div>
     <p class="facts num">人口 ${x.pop.toFixed(1)}千人 · 収入 ${L.incomeOf(S, c, month).toFixed(1)}億円/月</p>${notes}`);
   for (const b of sh.querySelectorAll('.cmd')) b.onclick = () => runCmd(b.dataset.cmd);
   for (const b of sh.querySelectorAll('[data-scale]')) b.onclick = () => { S.budget = Number(b.dataset.scale); save(); renderSheet(); };
@@ -422,10 +477,12 @@ function runCmd(k) {
   const sc = L.SCALABLE.includes(k) ? S.budget : undefined;
   const r = L.canDo(S, ADJ, 0, k, sel, S.ap, sc);
   if (!r.ok) { toast(r.reason); return; }
-  const text = L.doCmd(S, NAMES, 0, k, sel, sc);
+  const c = sel, before = statsOf(c);
+  const text = L.doCmd(S, NAMES, 0, k, c, sc);
   S.ap -= L.CMDS[k].ap;
   S.log.push({ t: S.turn, text, kind: 'good' }); seenLog = S.log.length;
   toast(text); render(); save();
+  showGain(c, before);
 }
 
 // ---------- 月を終える ----------

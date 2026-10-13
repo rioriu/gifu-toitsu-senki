@@ -127,6 +127,29 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--ink); outl
 .bar i { display: block; height: 100%; background: var(--ink-2); border-radius: 3px; }
 .bar.rel i { background: var(--me); }
 .bar.low i { background: var(--bad); }
+/* 関係度のゲージ：協定・協議（ほかの陣営なら擁立・切り崩し）の目盛りつき */
+.relg { margin: 8px 0 18px; }
+.relg-top { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; }
+.relg-top span { color: var(--ink-2); }
+.relg-top b { font-size: 18px; min-width: 1.6em; }
+.relg-top small { margin-left: auto; color: var(--ink-2); font-size: 12px; text-align: right; }
+.relg-bar { position: relative; height: 10px; margin-top: 4px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 5px; }
+.relg-bar i { display: block; height: 100%; max-width: 100%; background: var(--me); border-radius: 4px; }
+.relg-bar .mk { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--ink-2); border-radius: 1px; }
+.relg-bar .mk em { position: absolute; top: 15px; left: 50%; transform: translateX(-50%); font-style: normal; font-size: 10.5px; color: var(--ink-2); white-space: nowrap; }
+.relg-bar .mk.on { background: var(--me); }
+.relg-bar .mk.on em { color: var(--me); font-weight: 700; }
+.relg-bar .mk.hit em { animation: mk-hit .7s ease-out; }
+@keyframes mk-hit { 0% { transform: translateX(-50%) scale(1); } 40% { transform: translateX(-50%) scale(1.5); } 100% { transform: translateX(-50%) scale(1); } }
+/* 上がった数値 */
+[data-stat] { position: relative; }
+.gain { color: var(--good); font-weight: 700; font-size: 13px; animation: gain 1.6s ease-out both; pointer-events: none; }
+.gain.down { color: var(--bad); }
+.meter .gain { position: absolute; right: 0; top: -14px; font-size: 12px; }
+@keyframes gain { 0% { opacity: 0; transform: translateY(6px); } 15% { opacity: 1; transform: translateY(0); } 75% { opacity: 1; } 100% { opacity: 0; transform: translateY(-4px); } }
+.mappop { position: absolute; z-index: 1; transform: translate(-50%, -50%); background: var(--me); color: #fff; font-weight: 700; font-size: 13px; padding: 3px 10px; border-radius: 999px; white-space: nowrap; pointer-events: none; box-shadow: 0 2px 8px rgb(0 0 0 / .2); animation: mappop 1.6s ease-out both; }
+.mappop.down { background: var(--bad); }
+@keyframes mappop { 0% { opacity: 0; transform: translate(-50%, -20%) scale(.7); } 15% { opacity: 1; transform: translate(-50%, -50%) scale(1.08); } 25% { transform: translate(-50%, -50%) scale(1); } 75% { opacity: 1; transform: translate(-50%, -90%); } 100% { opacity: 0; transform: translate(-50%, -120%); } }
 .note { font-size: 12.5px; color: var(--ink-2); margin: 8px 0 0; }
 .note.talking { color: var(--ink); font-weight: 700; }
 .cmds { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
