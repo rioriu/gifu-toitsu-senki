@@ -1590,3 +1590,49 @@ Square 1:1 chest-up portrait, almost frontal, one person only. Large face center
 Contemporary fictional original person, never resemble real politicians, actors, historic portraits, mascots or existing characters. Clothing and haircut should fit modern community members. No text, letters, numbers, logos, signatures, watermarks, crests or emblems. No extra props beyond the subject specification.
 Subject specification (Japanese): 女性・20代。かりゆしウェア、海の青
 ```
+
+
+## img/event/elect.webp
+
+生成日：2026-10-13
+
+ツール：Codex組み込み image_gen ／1200×400 ／55,114 bytes ／画質 80 ／RGB・sRGB・背景あり
+
+参照：今回のシリーズ用に生成した `img/event/vote.webp` を画風・線・配色の参考として使用。選挙の場面は新たに生成した。特定の実在人物・作品・写真は参照していない。
+
+プロンプト：
+
+```text
+Use case: illustration-story
+Asset type: Gifu Toitsu Senki game event banner, election scene.
+Input image: style reference ONLY, matching existing series outline weight, limited colors and simple rendering; create a completely new scene.
+Flat modern Japanese illustration with a woodblock-print feel: clean even-weight outlines in dark indigo (#1b2830), flat color fills, minimal gradients. Limited palette: off-white washi (#efe6d2), vermilion (#cf4526), indigo (#2c5fa3), moss green (#5b8a24), purple (#874c9b), muted greens and slate blue for land. Bright, warm, slightly playful, dignified, approachable civic atmosphere. Original artwork. Not photorealistic.
+Scene: a modern Japanese station-front plaza in a small town. A plain compact election campaign van is parked in the middle. ONE fictional adult candidate stands on its flat rooftop platform delivering a speech through a microphone, shown from behind or as a distant tiny face with no recognizable identity. SIX residents of varied ages stand listening, viewed at a modest distance. TWO plain unmarked vertical nobori banners near the vehicle. A simple generic small station building behind, without any signs or words, and subtle distant Gifu mountain silhouettes.
+Exactly 3:1 very wide horizontal composition. All of the main van, rooftop candidate, listeners and banners must fit in the central 60% width (x20%-80%); the outer 20% at each side is quiet broad plaza, sky and simple building silhouette. Keep the van wheels and entire candidate in frame; no cropped heads. Large simple flat shapes, small indistinct faces, minimal architectural detail and only a few large clothing folds. Restrained modern editorial illustration consistent with the reference.
+Smooth SOLID color areas; paper feeling from warm off-white palette only. No grain, speckles, surface texture, painterly shading, dense crowd, hatching or tiny detail.
+The van and banners are entirely blank. No text, letters, numbers, names, license plate text, political party names, logos, seals, crests, election posters, slogans, signatures or watermarks. No real politician likeness. Entire background is opaque.
+```
+
+編集入力：今回生成した同じ選挙画像の前稿。
+
+修正プロンプト：
+
+```text
+Use case: precise-object-edit
+Correct the staging and candidate hand anatomy in this original election banner.
+CRITICAL spatial relationship: the candidate must FACE and SPEAK TO all six listeners. Use a clear camera view from BEHIND the audience, looking toward the rooftop candidate. The candidate stands centered on the campaign van roof, turned toward the foreground audience, shown FRONTALLY or a slight frontal three-quarter view. His face is tiny and generic with minimal indistinct features, not a recognizable real person. He looks downward at the listening residents. His mouth and microphone point toward them.
+Reposition all SIX residents in the foreground in a shallow arc, with their BACKS or rear three-quarter views toward the camera and their heads directed UP toward the candidate. All are on the SAME audience-facing side of the van; nobody is listening from behind the candidate. Leave a gap in the center to keep the van visible. Preserve the varied resident ages and existing clothing colors. This must read unmistakably as speaker facing audience, with audience facing speaker.
+Hands: the candidate holds ONE microphone naturally in one hand. His other hand makes a small relaxed open gesture toward the audience, with four fingers grouped closely and one separate thumb, anatomically plausible wrist, connected sleeve, no jagged claw/starburst, extra digits, detached fingers or twisted wrist. Avoid fine finger detail. Residents' arms may rest naturally at their sides, with simple readable hand shapes.
+Preserve the existing flat Japanese illustration style, dark even-weight outlines, warm palette, plain white campaign van, TWO unmarked nobori banners, generic small station building, mountains, trees, bright daytime mood, and opaque background. Preserve the approximately 3:1 wide format. Keep candidate, van, audience and banners within central 60% width, all heads and feet inside frame. Simplify incidental fine detail. Do not add people or objects.
+No text, lettering, names, party logos, signs, emblems, signatures or watermarks. No real politician likeness.
+```
+
+編集入力：今回生成した同じ選挙画像の前稿。
+
+修正プロンプト：
+
+```text
+Use case: precise-object-edit
+Correct ONLY the tiny face of the rooftop speaker in this supplied election illustration. The currently blank skin-colored face needs simple natural human facial features: TWO small dark eyes and subtle brows, one minimal nose mark, and a small speaking mouth partly near the microphone. Friendly composed expression. Keep the face small and stylized, with original fictional features and no real politician likeness.
+Preserve the current front-facing head orientation toward the six listeners, exact head size and location, hairstyle, all candidate hands and arm gestures, microphone, suit and sash. Preserve the complete corrected staging: speaker facing foreground listeners, all six listeners seen from behind facing the speaker. Preserve EVERY other pixel-level composition element, including van, blank banners, station, mountains, trees, palette, outline style, opaque background and wide 3:1 framing. Do not add text, lettering, logos, people, objects or fine realistic detail.
+```
