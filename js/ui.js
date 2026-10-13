@@ -447,6 +447,12 @@ function finishMonth() {
   const d = L.dateOf(S.turn);
   save();
   const summary = [`${d.label}　収支 ${res.income >= 0 ? '+' : ''}${res.income}億円`, ...res.news].join('　');
+  // 季節の行事があれば、先に挿絵つきで知らせる（月初の出来事のため）
+  const fest = prefs.season !== false && seasonOf(S.turn);
+  if (fest) { renderStatus(); showSeason(fest, () => { closeOverlay(); afterMonth(res, before, summary); }); }
+  else afterMonth(res, before, summary);
+}
+function afterMonth(res, before, summary) {
   const steps = mergeSteps(res.steps);
   if (prefs.replay && steps.length) {
     sel = null; render();
@@ -555,9 +561,16 @@ function art(src, cls) {
 }
 function artLoaded(img, ok) { artSeen[img.getAttribute('src')] = ok; if (ok) img.classList.add('ok'); else img.remove(); }
 const advPic = id => art(`img/adv/${id}.webp`, 'pic');
-// ニュースの月ごとの挿絵。上ほど優先
-const EVENT_ART = [['takayama', /高山祭/], ['ukai', /鵜飼が開幕/], ['gujo', /郡上おどり/], ['seki', /関ケ原の戦いの月/], ['rain', /豪雨/], ['snow', /豪雪/], ['firm', /企業が進出|誘致合戦/]];
-function eventArt(list) { const hit = EVENT_ART.find(([, re]) => list.some(e => re.test(e.text))); return hit ? art(`img/event/${hit[0]}.webp`, 'art-news') : ''; }
+const facePic = p => { const k = L.faceOf(p); return k ? art(`img/staff/${k}.webp`, 'face') : ''; };
+// 出来事の挿絵。ニュースでは月ごとに上ほど優先して1枚。title のある季節の行事は、月を終えたときに挿絵つきで知らせる
+const EVENTS = [
+  { id: 'takayama', re: /高山祭/, title: '高山祭', towns: ['21203'] },
+  { id: 'ukai', re: /鵜飼が開幕/, title: '長良川鵜飼', towns: ['21201', '21205'] },
+  { id: 'gujo', re: /郡上おどり/, title: '郡上おどり', towns: ['21219'] },
+  { id: 'seki', re: /関ケ原の戦いの月/, title: '関ケ原の戦いの月', towns: ['21362'] },
+  { id: 'rain', re: /豪雨/ }, { id: 'snow', re: /豪雪/ }, { id: 'firm', re: /企業が進出|誘致合戦/ }
+];
+function eventArt(list) { const ev = EVENTS.find(x => list.some(e => x.re.test(e.text))); return ev ? art(`img/event/${ev.id}.webp`, 'art-news') : ''; }
 
 function openOverlay(html, cls) {
   const p = $('panel'); p.className = 'panel' + (cls ? ' ' + cls : ''); p.innerHTML = html; $('overlay').hidden = false;
@@ -566,6 +579,24 @@ function openOverlay(html, cls) {
 }
 function closeOverlay() { $('overlay').hidden = true; }
 
+// その月の季節の行事（ログから拾う）
+function seasonOf(t) {
+  const list = S.log.filter(e => e.t === t);
+  for (const ev of EVENTS) {
+    const e = ev.title && list.find(x => ev.re.test(x.text));
+    if (e) return { ev, text: e.text };
+  }
+  return null;
+}
+function showSeason(s, onOk) {
+  const d = L.dateOf(S.turn), ev = s.ev;
+  const title = ev.id === 'takayama' ? `${ev.title}（${d.month === 4 ? '春' : '秋'}）` : ev.title;
+  const own = ev.towns.map(c => `${NAMES[c]}は${S.m[c].owner === 0 ? '<b style="color:var(--me)">あなたの陣営</b>' : ownerName(c)}`).join('・');
+  openOverlay(`${art(`img/event/${ev.id}.webp`, 'art-top art-band')}<div class="kicker">${d.label}・季節の便り</div><h3>${title}</h3>
+    <p style="font-size:15px;margin:6px 0 4px">${s.text}</p><p class="sub">${own}</p>
+    <div class="row"><button class="btn main" id="okBtn">次へ</button></div>`);
+  $('okBtn').onclick = onOk || next;
+}
 function showVote(v, onOk) {
   const mineWin = v.f === 0, total = v.yes + v.no, yp = total ? v.yes / total * 100 : 50;
   const who = v.f === 0 ? 'あなたの陣営' : S.factions[v.f].name;
@@ -685,12 +716,12 @@ function showStaff(focus) {
     return `<div class="role"><small>${def.label}・${L.ABIL[def.key]}が効く</small><b>${p ? gradeTag(p) + ' ' + p.name : '空席'}</b><span class="eff${p ? '' : ' none'}">${p ? roleEffect(r, v) : def.what}</span></div>`;
   }).join('');
   const opts = p => `<option value="">役職なし</option>` + Object.entries(L.ROLES).map(([r, def]) => `<option value="${r}" ${p.role === r ? 'selected' : ''}>${def.label}（${L.ABIL[def.key]} ${L.abil(S, 0, p, def.key)}）</option>`).join('');
-  const people = mine.map(p => `<div class="person"><div class="top">${gradeTag(p)}<b>${p.name}</b><small>${p.ext ? (p.pref || '県外') + 'から招へい' : NAMES[p.home] + '出身'}・役職の給与 月${L.GRADE_PAY[L.gradeOf(p)]}億円</small></div>${abilHtml(p)}
+  const people = mine.map(p => `<div class="person">${facePic(p)}<div class="top">${gradeTag(p)}<b>${p.name}</b><small>${p.ext ? (p.pref || '県外') + 'から招へい' : NAMES[p.home] + '出身'}・役職の給与 月${L.GRADE_PAY[L.gradeOf(p)]}億円</small></div>${abilHtml(p)}
     <select data-role="${p.id}" aria-label="${p.name}の役職">${opts(p)}</select></div>`).join('') || '<p class="empty">まだ人材がいません。</p>';
   const cands = L.hireCandidates(S, ADJ, 0).sort((a, b) => (b.pol + b.neg + b.plan + b.pop) - (a.pol + a.neg + a.plan + a.pop));
   const hires = cands.slice(0, 8).map(p => {
     const r = L.canHire(S, ADJ, 0, p.id, S.ap);
-    return `<div class="person"><div class="top">${gradeTag(p)}<b>${p.name}</b><small>${NAMES[p.home]}出身・${S.m[p.home].owner === 0 ? '自陣営' : '隣の独立市町村'}</small></div>${abilHtml(p)}
+    return `<div class="person">${facePic(p)}<div class="top">${gradeTag(p)}<b>${p.name}</b><small>${NAMES[p.home]}出身・${S.m[p.home].owner === 0 ? '自陣営' : '隣の独立市町村'}</small></div>${abilHtml(p)}
       <button class="btn hirebtn${r.ok ? ' main' : ''}" data-hire="${p.id}" aria-disabled="${!r.ok}">登用する（${L.hireCost(p)}億円・行動1）</button>${r.ok ? '' : `<span class="why">${r.reason}</span>`}</div>`;
   }).join('') || '<p class="empty">いま登用できる人材はいません。市町村を広げると見つかります。</p>';
   openOverlay(`<button class="iconbtn close" id="xBtn" aria-label="閉じる">✕</button><h3>人材</h3>
@@ -762,6 +793,7 @@ function showMenu() {
   openOverlay(`<button class="iconbtn close" id="xBtn" aria-label="閉じる">✕</button><h3>メニュー</h3>
     <p class="sub">進み具合はこのブラウザに自動で保存されます。</p>
     <label class="toggle"><input type="checkbox" id="rpToggle" ${prefs.replay ? 'checked' : ''}>月を終えたあと、相手の動きを地図で見せる</label>
+    <label class="toggle"><input type="checkbox" id="ssToggle" ${prefs.season !== false ? 'checked' : ''}>季節の行事（高山祭・鵜飼など）を、月を終えたときに知らせる</label>
     <label class="toggle"><input type="checkbox" id="btToggle" ${prefs.battle !== false ? 'checked' : ''}>見込み${L.BATTLE_MIN}〜${L.BATTLE_MAX}％の住民投票を決戦で決める（外すと今までの計算で決まる）</label>
     <ul class="howto">${HOWTO}</ul>
     ${S.over ? `<div class="row"><button class="btn main" id="overBtn">${S.over.win && S.over.region ? '圏域制覇の結果（続けて遊ぶ）' : '結果を見る'}</button></div>` : ''}
@@ -770,6 +802,7 @@ function showMenu() {
   if ($('overBtn')) $('overBtn').onclick = showOver;
   $('rpToggle').onchange = e => { prefs.replay = e.target.checked; savePrefs(); };
   $('btToggle').onchange = e => { prefs.battle = e.target.checked; savePrefs(); };
+  $('ssToggle').onchange = e => { prefs.season = e.target.checked; savePrefs(); };
   $('resetBtn').onclick = () => {
     $('confirmBox').innerHTML = `<p style="margin:12px 0 0">今の進み具合は消えます。やり直しますか？</p><div class="row"><button class="btn danger" id="yesReset">やり直す</button><button class="btn" id="noReset">やめる</button></div>`;
     $('yesReset').onclick = () => { clearSave(); showTitle(); };
@@ -831,7 +864,7 @@ function showStartDetail(c) {
     const keys = Object.keys(L.ABIL), best = keys.reduce((a, b) => p[b] > p[a] ? b : a), g = L.gradeOf(p);
     const role = p.role ? L.ROLES[p.role] : null;
     const val = p.role ? L.abil(st, 0, p, role.key) : 0;
-    return `<div class="person"><div class="top"><span class="grade ${g}">${g}</span><b>${p.name}</b><small>${role ? role.label + 'に就任' : '役職なし'}</small></div>
+    return `<div class="person">${facePic(p)}<div class="top"><span class="grade ${g}">${g}</span><b>${p.name}</b><small>${role ? role.label + 'に就任' : '役職なし'}</small></div>
       <div class="abil">${keys.map(k => `<span class="${k === best ? 'best' : ''}">${L.ABIL[k]}<b class="num">${L.abil(st, 0, p, k)}</b></span>`).join('')}</div>
       ${role ? `<span class="why" style="color:var(--good)">${role.label}の効果：${roleEffect(p.role, val)}（給与 月${L.GRADE_PAY[g]}億円）</span>` : ''}</div>`;
   }).join('') || '<p class="empty">ゆかりの人材はいません。</p>';

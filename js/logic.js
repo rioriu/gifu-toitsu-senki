@@ -220,16 +220,16 @@
   };
   // 偉人アドバイザーと紛らわしかった古い名前 → 今の名前
   const RENAMED = { '織田 信': '金華 城子', '竹中 半太': '南宮 垂水', '明智 光': '兼山 湊', '石田 光成': '不破 関太', '金森 宗': '宮川 朝子', '松尾 芭奈': '水野 枡美', '島崎 夜明': '馬籠 坂子', '杉原 千歩': '丸山 湖', '織部 翠': '下石 徳利' };
-  // 県外から招へいする人材：出身県の名物にちなむ
+  // 県外から招へいする人材：出身県の名物にちなむ。3つめは顔の画像名（docs/images.md）
   const OUTSIDERS = [
-    ['北海道', '十勝 牧'], ['青森県', '津軽 林檎'], ['宮城県', '伊達 政子'], ['秋田県', '比内 小町'],
-    ['山形県', '佐藤 錦'], ['茨城県', '水戸 納'], ['栃木県', '宇都宮 餃太'], ['群馬県', '上州 空風'],
-    ['東京都', '江戸川 粋'], ['新潟県', '越後 米蔵'], ['富山県', '黒部 鱒子'], ['石川県', '金沢 箔子'],
-    ['福井県', '鯖江 鏡子'], ['長野県', '信濃 蕎麦子'], ['静岡県', '駿河 富士子'], ['愛知県', '味噌川 赤音'],
-    ['三重県', '鈴鹿 走'], ['滋賀県', '琵琶 湖太郎'], ['京都府', '祇園 雅'], ['大阪府', '浪速 商人'],
-    ['兵庫県', '明石 焼太'], ['奈良県', '春日 鹿之助'], ['広島県', '宮島 紅葉'], ['香川県', '讃岐 麺太'],
-    ['愛媛県', '伊予 柑太'], ['高知県', '坂本 竜真'], ['福岡県', '博多 明太'], ['熊本県', '肥後 熊太'],
-    ['鹿児島県', '西郷 隆子'], ['沖縄県', '琉球 美海']
+    ['北海道', '十勝 牧', 'hokkaido'], ['青森県', '津軽 林檎', 'aomori'], ['宮城県', '伊達 政子', 'miyagi'], ['秋田県', '比内 小町', 'akita'],
+    ['山形県', '佐藤 錦', 'yamagata'], ['茨城県', '水戸 納', 'ibaraki'], ['栃木県', '宇都宮 餃太', 'tochigi'], ['群馬県', '上州 空風', 'gunma'],
+    ['東京都', '江戸川 粋', 'tokyo'], ['新潟県', '越後 米蔵', 'niigata'], ['富山県', '黒部 鱒子', 'toyama'], ['石川県', '金沢 箔子', 'ishikawa'],
+    ['福井県', '鯖江 鏡子', 'fukui'], ['長野県', '信濃 蕎麦子', 'nagano'], ['静岡県', '駿河 富士子', 'shizuoka'], ['愛知県', '味噌川 赤音', 'aichi'],
+    ['三重県', '鈴鹿 走', 'mie'], ['滋賀県', '琵琶 湖太郎', 'shiga'], ['京都府', '祇園 雅', 'kyoto'], ['大阪府', '浪速 商人', 'osaka'],
+    ['兵庫県', '明石 焼太', 'hyogo'], ['奈良県', '春日 鹿之助', 'nara'], ['広島県', '宮島 紅葉', 'hiroshima'], ['香川県', '讃岐 麺太', 'kagawa'],
+    ['愛媛県', '伊予 柑太', 'ehime'], ['高知県', '坂本 竜真', 'kochi'], ['福岡県', '博多 明太', 'fukuoka'], ['熊本県', '肥後 熊太', 'kumamoto'],
+    ['鹿児島県', '西郷 隆子', 'kagoshima'], ['沖縄県', '琉球 美海', 'okinawa']
   ];
   // まだ陣営にいない県外人材から選ぶ（全員いれば重複を許す）
   function pickOutsider(st, r) {
@@ -237,6 +237,12 @@
     const free = OUTSIDERS.filter(o => !used.has(o[1]));
     const pool = free.length ? free : OUTSIDERS;
     return pool[Math.floor(r * pool.length)];
+  }
+  // 人材の顔の画像名（docs/images.md）。ゆかりの人材は「市町村コード-番号」、県外の人材は「ext-都道府県」
+  function faceOf(p) {
+    if (p.ext) { const o = OUTSIDERS.find(o => o[1] === p.name); return o ? 'ext-' + o[2] : null; }
+    const i = (LOCAL_NAMES[p.home] || []).indexOf(p.name);
+    return i < 0 ? null : `${p.home}-${i}`;
   }
   const ROLES = {
     deputy: { label: '副市長', key: 'pol', what: '全体の税収が上がる' },
@@ -1204,6 +1210,6 @@
   }
 
   const api = { BATTLE_MIN, BATTLE_MAX, battleExpect, battlesDue, setBattle, JOIN_TOWNS, JOIN_RATIO, JOIN_SAT, AI_GUARD, voteExpect, AI_IDLE, FIRMS, LURE_MONTHS, LURE_PT, LURE_MAX, firmInc, sitePoint, lureSite, lureBid, lureScore, lureParts, lureRows, ADVISORS, ADV_BY_ID, ADV_MONTHS, ADV_COOL, ADV_SLOT2, ensureAdv, advCond, advMeasure, advOf, advFx, advBonus, advMax, advUsed, advHolder, canInviteAdv, inviteAdv, advise, advVote, regionLength, talksMax, APPEAL_TALKS, appeal, appealOf, appealRel, appealVote, INFO, REGIONS, MODES, regionCodes, goalOf, continueToUnify, CMDS, dateOf, difficultyOf, newGame, owned, apMax, totalPop, avgSat, incomeOf,
-    factionIncome, grantOf, tagInfo, upkeep, cmdCost, cmdEffect, SCALES, SCALABLE, gradeOf, GRADE_PAY, SCOUT, canScout, scout, ROLES, ABIL, ensureStaff, staffOf, staffMax, abil, roleVal, hireCandidates, hireCost, canHire, hire, assignRole, autoAssign, staffUpkeep, aiStaff, inTalk, BID_MAX, KEEP_MAX, KEEP_STEP, canDo, doCmd, endTurn, adjacentTo, talksOf, seasonX, clamp };
+    factionIncome, grantOf, tagInfo, upkeep, cmdCost, cmdEffect, SCALES, SCALABLE, gradeOf, GRADE_PAY, faceOf, SCOUT, canScout, scout, ROLES, ABIL, ensureStaff, staffOf, staffMax, abil, roleVal, hireCandidates, hireCost, canHire, hire, assignRole, autoAssign, staffUpkeep, aiStaff, inTalk, BID_MAX, KEEP_MAX, KEEP_STEP, canDo, doCmd, endTurn, adjacentTo, talksOf, seasonX, clamp };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.GameLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);

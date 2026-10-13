@@ -242,7 +242,10 @@ select { font: inherit; padding: 10px; border-radius: 10px; border: 1px solid va
 .role .eff { font-size: 12px; color: var(--good); }
 .role .eff.none { color: var(--ink-2); }
 .people { display: grid; gap: 8px; }
-.person { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: grid; gap: 6px; }
+.person { position: relative; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: grid; gap: 6px; }
+/* 人材の顔（読み込めたときだけ、カードの左上に丸く出す） */
+.person:has(> .face.ok) { padding-left: 66px; min-height: 66px; }
+.person > .face.ok { position: absolute; left: 12px; top: 10px; width: 44px; height: 44px; border-radius: 50%; border: 2px solid var(--line); }
 .person .top { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .person .top b { font-size: 15px; }
 .person .top small { color: var(--ink-2); font-size: 12px; }
