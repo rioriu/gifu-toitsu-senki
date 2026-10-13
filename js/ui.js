@@ -1,6 +1,7 @@
 // 岐阜統一戦記 画面の処理・描画
 const L = window.GameLogic;
-const TI = window.TownIcons;
+// 古い index.html が残っていて icons.js が読まれていなくても、アイコンなしで動くようにする
+const TI = window.TownIcons || { icon: () => '', nameOf: () => '' };
 const SAVE_KEY = 'gifu-toitsu-v1';
 const NAMES = {}, ADJ = {}, AREA = {}, BYCODE = {};
 for (const m of MAP.muni) { NAMES[m.code] = m.name; ADJ[m.code] = m.adj; AREA[m.code] = m.area; BYCODE[m.code] = m; }
