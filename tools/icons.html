@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>市町村アイコン一覧</title>
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  body { padding: 16px; overflow: auto; height: auto; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 12px; }
+  .cell { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px; text-align: center; }
+  .cell .ticon { width: 64px; height: 64px; }
+  .cell small { color: var(--ink-2); font-size: 11px; }
+  .sizes { display: flex; gap: 8px; align-items: center; margin: 16px 0; }
+</style>
+</head>
+<body>
+<h3>市町村アイコン（42）</h3>
+<div class="sizes" id="sizes"></div>
+<div class="grid" id="grid"></div>
+<script src="../js/logic.js"></script>
+<script src="../js/map-data.js"></script>
+<script src="../js/icons.js"></script>
+<script>
+  const T = window.TownIcons, L = window.GameLogic;
+  document.getElementById('grid').innerHTML = MAP.muni.map(m => `<div class="cell">${T.icon(m.code)}<b>${m.name}</b><small>${T.nameOf(m.code)}${L.INFO[m.code][2] ? '・特産' : ''}</small></div>`).join('');
+  // 小さく出したときに見分けられるか
+  document.getElementById('sizes').innerHTML = MAP.muni.map(m => T.icon(m.code)).join('');
+  for (const s of document.querySelectorAll('#sizes .ticon')) { s.style.width = s.style.height = '22px'; }
+</script>
+</body>
+</html>

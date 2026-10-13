@@ -1,5 +1,6 @@
 // 岐阜統一戦記 画面の処理・描画
 const L = window.GameLogic;
+const TI = window.TownIcons;
 const SAVE_KEY = 'gifu-toitsu-v1';
 const NAMES = {}, ADJ = {}, AREA = {}, BYCODE = {};
 for (const m of MAP.muni) { NAMES[m.code] = m.name; ADJ[m.code] = m.adj; AREA[m.code] = m.area; BYCODE[m.code] = m; }
@@ -320,7 +321,7 @@ function renderSheet() {
     const open = Object.keys(S.m).filter(c => S.m[c].owner > 0 && !S.m[c].race && L.electLeft(S, c) < L.ELECT_WINDOW && L.adjacentTo(S, ADJ, c, 0));
     const electNote = (races.length ? `<p class="note talking">首長選挙：${races.map(c => `<b>${NAMES[c]}</b>（${S.m[c].race.inc === 0 ? '対立候補あり' : 'あなたの候補'}・見込み${Math.round(L.electMine(S, c))}％・あと${L.electLeft(S, c) + 1}か月）`).join('、')}。台帳の「演説会」で得票を伸ばせます</p>` : '')
       + (open.length ? `<p class="note">${open.map(c => NAMES[c]).join('・')}で首長選挙が近づいています。候補を立てて当選すれば、自陣営に移ります</p>` : '');
-    sheetFrame(`<h2>${NAMES[me.capital]}陣営</h2><span class="tag">${L.owned(S, 0).length}市町村</span>${goalTag()}${lureTag}${advTag}`,
+    sheetFrame(`${TI.icon(me.capital)}<h2>${NAMES[me.capital]}陣営</h2><span class="tag">${L.owned(S, 0).length}市町村</span>${goalTag()}${lureTag}${advTag}`,
       first ? '<b>隣の市町村をタップ</b>して、交流事業で関係度を上げましょう' : '',
       '',
       `<p class="facts num">人口 ${L.totalPop(S, 0).toFixed(1)}千人 · 平均満足度 ${Math.round(L.avgSat(S, 0))} · 収入 ${L.factionIncome(S, 0, L.dateOf(S.turn).month)}億円/月 · 維持費 ${L.upkeep(S, 0)}億円 · 魅力 ${Math.round(L.appeal(S, 0))} · 協議 同時${L.talksMax(S, 0)}件まで</p>` + lureHtml() + electNote + tips + advNote);
@@ -390,7 +391,7 @@ function renderSheet() {
   // 一行に収まる要点だけ。他陣営・独立なら関係度、自陣営なら満足度を先に出す
   const line = (mine ? `満足度 ${Math.round(x.sat)} · 魅力 ${Math.round(L.appealOf(S, c))} · 収入 ${L.incomeOf(S, c, month).toFixed(1)}億円`
     : `満足度 ${Math.round(x.sat)} · 人口 ${x.pop.toFixed(0)}千人`) + (alert ? ` <b class="alert">${alert}</b>` : '');
-  sheetFrame(`<h2>${NAMES[c]}</h2>${ownerTag}<span class="tag">${info[0]}</span>`, line,
+  sheetFrame(`${TI.icon(c)}<h2>${NAMES[c]}</h2>${ownerTag}<span class="tag">${info[0]}</span>`, line,
     `${mine ? '' : relGauge(c)}${cmds.some(k => L.SCALABLE.includes(k)) ? budgetHtml() : ''}<div class="cmds">${btns}</div>`,
     `<div class="meters">${meter('産業力', x.ind, '', 'ind')}${meter('観光力', x.tour, '', 'tour')}${meter('満足度', x.sat, '', 'sat')}${meter('防災力', x.dis, '', 'dis')}</div>
     <p class="facts num">人口 ${x.pop.toFixed(1)}千人 · 収入 ${L.incomeOf(S, c, month).toFixed(1)}億円/月</p>${notes}`);
@@ -1019,7 +1020,7 @@ function showStartDetail(c) {
   const nb = ADJ[c].map(n => NAMES[n]).join('、');
   openOverlay(`<button class="btn" id="backBtn">← 市町村選びに戻る</button>
     <div class="kicker" style="margin-top:16px">${info[0]}圏域・${L.difficultyOf(c)}・${L.MODES[pickMode()].label}</div>
-    <div class="logo" style="font-size:clamp(32px,10vw,48px)">${NAMES[c]}</div>
+    <div class="townhead">${TI.icon(c, 'big')}<div><div class="logo" style="font-size:clamp(32px,10vw,48px)">${NAMES[c]}</div><small>${TI.nameOf(c)}</small></div></div>
     <div class="grid2">
       <div class="kv"><span>人口</span><b class="num">${info[1]}千人</b></div>
       <div class="kv"><span>開始時の財源</span><b class="num">${pv.money}億円</b></div>
@@ -1047,8 +1048,8 @@ function showStartDetail(c) {
 // 畳んだ中のリストは数が多いので、2列に収まる短い書き方にする
 function startBtn(c, by, compact) {
   const pv = startPreview(c), info = L.INFO[c], head = by === 'region' ? L.difficultyOf(c) : info[0];
-  if (compact) return `<button data-start="${c}">${NAMES[c]}<small>${head}・${info[1]}千人${info[2] ? '・' + info[2] : ''}</small><span class="money num">財源${pv.money}億・月${signed(pv.net)}億</span></button>`;
-  return `<button data-start="${c}">${NAMES[c]}<small>${head}・人口${info[1]}千人${info[2] ? '・' + info[2] : ''}</small><span class="money num">財源 ${pv.money}億円・月収支 ${signed(pv.net)}億円</span></button>`;
+  if (compact) return `<button data-start="${c}">${TI.icon(c)}<span>${NAMES[c]}<small>${head}・${info[1]}千人${info[2] ? '・' + info[2] : ''}</small><span class="money num">財源${pv.money}億・月${signed(pv.net)}億</span></span></button>`;
+  return `<button data-start="${c}">${TI.icon(c)}<span>${NAMES[c]}<small>${head}・人口${info[1]}千人${info[2] ? '・' + info[2] : ''}</small><span class="money num">財源 ${pv.money}億円・月収支 ${signed(pv.net)}億円</span></span></button>`;
 }
 const pickBy = () => prefs.pickBy === 'region' ? 'region' : 'level';
 // 難易度ごと：おすすめを並べ、残りは「その他の市町村」に畳む。圏域ごと：圏域ごとに畳む

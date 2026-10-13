@@ -127,6 +127,12 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--ink); outl
 .bar i { display: block; height: 100%; background: var(--ink-2); border-radius: 3px; }
 .bar.rel i { background: var(--me); }
 .bar.low i { background: var(--bad); }
+/* 市町村アイコン：生成り色の丸に描く（暗い画面でも同じ見た目） */
+.ticon { display: inline-block; flex: none; width: 28px; height: 28px; padding: 3px; border-radius: 50%; background: #f6efe0; box-shadow: inset 0 0 0 1px rgb(0 0 0 / .08); vertical-align: middle; }
+.ticon.big { width: 72px; height: 72px; padding: 6px; }
+.townhead { display: flex; align-items: center; gap: 14px; margin: 6px 0 10px; }
+.townhead .logo { margin: 0; }
+.townhead small { color: var(--ink-2); font-size: 12px; }
 /* 関係度のゲージ：協定・協議（ほかの陣営なら擁立・切り崩し）の目盛りつき */
 .relg { margin: 8px 0 18px; }
 .relg-top { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; }
@@ -193,7 +199,8 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--ink); outl
 .pick h4 { margin: 0 0 6px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
 .pick .lv { font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink-2); font-weight: 400; }
 .pick .opts { display: flex; gap: 8px; flex-wrap: wrap; }
-.pick .opts button { border: 1px solid var(--line); background: var(--surface-2); border-radius: 10px; padding: 9px 14px; cursor: pointer; text-align: left; }
+.pick .opts button { border: 1px solid var(--line); background: var(--surface-2); border-radius: 10px; padding: 9px 14px 9px 10px; cursor: pointer; text-align: left; display: flex; align-items: center; gap: 10px; }
+.pick .opts button .ticon { width: 34px; height: 34px; }
 .pick .opts button small { display: block; color: var(--ink-2); font-size: 11px; }
 .pick .opts button .money { display: block; font-size: 11.5px; color: var(--ink); margin-top: 2px; }
 .modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
@@ -212,7 +219,8 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--ink); outl
 .pick details.more summary b { color: var(--ink); }
 .pick details.more[open] summary { margin-bottom: 4px; }
 .pick .opts.compact { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
-.pick .opts.compact button { padding: 8px 10px; }
+.pick .opts.compact button { padding: 8px 10px 8px 8px; gap: 8px; }
+.pick .opts.compact button .ticon { width: 28px; height: 28px; }
 .pick details.more[open] { padding-bottom: 10px; }
 select { font: inherit; padding: 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink); max-width: 100%; }
 .guide { border-top: 1px solid var(--line); }
