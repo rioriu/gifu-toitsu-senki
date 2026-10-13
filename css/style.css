@@ -277,7 +277,7 @@ select { font: inherit; padding: 10px; border-radius: 10px; border: 1px solid va
 .scouts button[aria-disabled="true"] { opacity: .55; }
 /* 偉人アドバイザー：金の縁どりのカード */
 .advs { display: grid; gap: 8px; margin-top: 10px; }
-.adv { border: 1px solid var(--line); border-left: 4px solid var(--warn); border-radius: 12px; padding: 9px 12px; background: var(--surface-2); display: grid; gap: 3px; justify-items: start; }
+.adv { position: relative; border: 1px solid var(--line); border-left: 4px solid var(--warn); border-radius: 12px; padding: 9px 12px; background: var(--surface-2); display: grid; gap: 3px; justify-items: start; }
 .adv .top { display: flex; align-items: baseline; gap: 4px 8px; flex-wrap: wrap; width: 100%; }
 .adv .nm { font-family: var(--font-display); font-weight: 400; font-size: 16px; letter-spacing: .02em; }
 .adv .top small { color: var(--ink-2); font-size: 11.5px; }
@@ -292,6 +292,9 @@ select { font: inherit; padding: 10px; border-radius: 10px; border: 1px solid va
 .adv .conds li.ok { color: var(--good); }
 .adv .conds li.ok::before { content: '☑'; }
 .adv.locked { border-left-color: var(--line); opacity: .7; }
+/* 偉人の肖像（読み込めたときだけ、カードの左に丸く出す） */
+.adv:has(> .pic.ok) { padding-left: 80px; min-height: 78px; }
+.adv > .pic.ok { position: absolute; left: 12px; top: 10px; width: 56px; height: 56px; border-radius: 50%; border: 2px solid var(--line); }
 .advmore summary { cursor: pointer; font-size: 13px; color: var(--ink-2); padding: 12px 0; }
 .tag.adv-tag { border-color: var(--warn); color: var(--warn); }
 .linkbtn { border: 0; background: none; padding: 0 2px; color: var(--me); font-weight: 700; text-decoration: underline; cursor: pointer; font-size: inherit; }
@@ -384,3 +387,14 @@ select { font: inherit; padding: 10px; border-radius: 10px; border: 1px solid va
 .bt-verdict.pass { color: var(--me); }
 .bt-verdict.fail { color: var(--b-opp); }
 @media (prefers-reduced-motion: reduce) { .bt-banner.show { animation-duration: .01s; } .bt-timer.hurry, .bt-skills.pulse .bt-sk { animation: none; } }
+
+/* イラスト（docs/images.md）。読み込めたものだけ出す。ないあいだは今の見た目のまま */
+.art { display: none; }
+.art.ok { display: block; width: 100%; object-fit: cover; background: var(--surface-2); }
+/* 重ねる画面のいちばん上に、端まで広げて置く */
+.art-top.ok { width: calc(100% + 32px); max-width: none; margin: -20px -16px 16px; }
+.panel:not(.title-panel) > .art-top.ok { border-radius: 18px 18px 0 0; }
+.art-hero.ok { aspect-ratio: 3 / 2; max-height: 40vh; }
+.art-end.ok { aspect-ratio: 3 / 2; max-height: 32vh; }
+.art-band.ok { aspect-ratio: 3 / 1; max-height: 22vh; }
+.art-news.ok { aspect-ratio: 3 / 1; border-radius: 10px; margin: 4px 0 8px; }

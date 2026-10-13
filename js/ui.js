@@ -355,7 +355,7 @@ function showLure(s, onOk) {
       <div class="lure">${lureList(s.rows, s.f)}</div>
       <p style="margin:14px 0 0;font-weight:700;color:${won ? 'var(--good)' : 'var(--bad)'}">${won ? `${NAMES[s.code]}に${s.name}が立地します。${firmGain(s)}` : `${facName(s.f)}の${NAMES[s.code]}に決まりました。${mine && mine.paid ? `補助金${mine.paid}億円は戻りました。` : ''}`}</p>`;
   }
-  openOverlay(`<h3>${start ? '誘致合戦' : '誘致合戦 決着'}</h3>${body}
+  openOverlay(`${art('img/event/firm.webp', 'art-top art-band')}<h3>${start ? '誘致合戦' : '誘致合戦 決着'}</h3>${body}
     <div class="row">${start && mine ? `<button class="btn main" id="lureGo">候補地を見る</button>` : ''}<button class="btn${start && mine ? '' : ' main'}" id="okBtn">次へ</button></div>`);
   $('okBtn').onclick = go;
   // 候補地を選んでおき、残りの知らせのあとに台帳で見られるようにする
@@ -546,6 +546,19 @@ $('replay').addEventListener('click', e => { if (e.target.id === 'rpSkip') retur
 $('rpSkip').onclick = () => { if (replay) { if (!$('overlay').hidden) return; endReplay(); } };
 function next() { closeOverlay(); const f = queue.shift(); if (f) f(); }
 
+// ---------- イラスト ----------
+// 画像は docs/images.md の依頼で後から届く。読み込めたものだけ出し、ないものは何も出さない（今の見た目のまま）
+const artSeen = {};
+function art(src, cls) {
+  if (artSeen[src] === false) return '';
+  return `<img class="art ${cls}${artSeen[src] ? ' ok' : ''}" src="${src}" alt="" onload="artLoaded(this, true)" onerror="artLoaded(this, false)">`;
+}
+function artLoaded(img, ok) { artSeen[img.getAttribute('src')] = ok; if (ok) img.classList.add('ok'); else img.remove(); }
+const advPic = id => art(`img/adv/${id}.webp`, 'pic');
+// ニュースの月ごとの挿絵。上ほど優先
+const EVENT_ART = [['takayama', /高山祭/], ['ukai', /鵜飼が開幕/], ['gujo', /郡上おどり/], ['seki', /関ケ原の戦いの月/], ['rain', /豪雨/], ['snow', /豪雪/], ['firm', /企業が進出|誘致合戦/]];
+function eventArt(list) { const hit = EVENT_ART.find(([, re]) => list.some(e => re.test(e.text))); return hit ? art(`img/event/${hit[0]}.webp`, 'art-news') : ''; }
+
 function openOverlay(html, cls) {
   const p = $('panel'); p.className = 'panel' + (cls ? ' ' + cls : ''); p.innerHTML = html; $('overlay').hidden = false;
   p.scrollTop = 0;
@@ -565,7 +578,7 @@ function showVote(v, onOk) {
   const joinLine = v.joined && v.joined.length ? `<p class="sub">${NAMES[v.code]}ゆかりの人材：${v.joined.join('・')}が${v.f === 0 ? 'あなたの陣営' : S.factions[v.f].name}に加わりました</p>` : '';
   const keepLine = joinLine + (v.keep ? `<p class="sub">引き留め ${v.keep}段で、賛成を${v.keep * L.KEEP_STEP}ポイント押し下げました</p>` : '');
   const contestLine = keepLine + (c ? `<p class="sub">条件の競り合いは${who}に決まりました（上乗せ ${c.bids[c.winner]}段 対 ${c.bids[c.loser]}段）</p>` : '');
-  openOverlay(`<h3>住民投票 開票結果</h3>
+  openOverlay(`${art('img/event/vote.webp', 'art-top art-band')}<h3>住民投票 開票結果</h3>
     <p class="sub">${NAMES[v.code]}　${who}との合併の是非</p>${contestLine}
     <div class="ballot">
       <div class="vs"><div><small>賛成</small><b class="num">${v.yes.toLocaleString()}票</b></div><div style="text-align:right;margin-right:110px"><small>反対</small><b class="num">${v.no.toLocaleString()}票</b></div></div>
@@ -591,7 +604,7 @@ function showOver() {
   const o = S.over, n = L.owned(S, 0).length;
   const title = !o.win ? '任期終了' : (o.region ? '圏域制覇' : '県内統一');
   const goOn = o.win && !!o.region;
-  openOverlay(`<h3>${title}</h3><p class="sub">${L.dateOf(S.turn).label}</p>
+  openOverlay(`${art(`img/end/${!o.win ? 'term' : o.region ? 'region' : 'unify'}.webp`, 'art-top art-end')}<h3>${title}</h3><p class="sub">${L.dateOf(S.turn).label}</p>
     <p style="font-size:15px">${o.text}</p><p class="sub">最終的な支配：${n}/42市町村、人口${L.totalPop(S, 0).toFixed(1)}千人</p>
     ${goOn ? '<p class="sub">このまま続けて、県内42市町村の統一を目指すこともできます。</p>' : ''}
     <div class="row">${goOn ? '<button class="btn main" id="goOnBtn">県内統一を目指して続ける</button>' : ''}<button class="btn${goOn ? '' : ' main'}" id="againBtn">新しく始める</button><button class="btn" id="viewBtn">地図を見る</button></div>`);
@@ -628,7 +641,7 @@ function fillEmpty(p) {
 function advCard(id, left, withTip) {
   const a = L.ADV_BY_ID[id];
   const tip = withTip ? `<span class="tip">${L.advise(S, ADJ, NAMES, 0, id)}</span>` : '';
-  return `<div class="adv"><div class="top"><b class="nm">${a.name}</b><small>${a.title}・${NAMES[a.home]}ゆかり</small>${left ? `<span class="left num">あと${left}か月</span>` : ''}</div>
+  return `<div class="adv">${advPic(id)}<div class="top"><b class="nm">${a.name}</b><small>${a.title}・${NAMES[a.home]}ゆかり</small>${left ? `<span class="left num">あと${left}か月</span>` : ''}</div>
     <span class="fx">${L.advFx(a)}</span><span class="say">「${a.say}」</span>${tip}</div>`;
 }
 // 助言がないとき、招ける偉人がいれば知らせる
@@ -651,7 +664,7 @@ function advSection() {
   const card = ({ a, r }) => {
     const home = S.m[a.home].owner === 0;
     const why = r.ok || r.cond || r.reason === 'ゆかりの地を自陣営にすると招けます' ? '' : r.reason;
-    return `<div class="adv${r.ok ? '' : ' locked'}"><div class="top"><b class="nm">${a.name}</b><small>${a.title}・${NAMES[a.home]}ゆかり</small></div>
+    return `<div class="adv${r.ok ? '' : ' locked'}">${advPic(a.id)}<div class="top"><b class="nm">${a.name}</b><small>${a.title}・${NAMES[a.home]}ゆかり</small></div>
       <span class="fx">${L.advFx(a)}</span>${condHtml(a, home)}
       ${r.ok ? `<button class="btn main hirebtn" data-adv="${a.id}">招く（${a.cost}億円・行動1）</button>` : why ? `<span class="why">${why}</span>` : ''}</div>`;
   };
@@ -736,12 +749,13 @@ function showFactions() {
 }
 function showNews() {
   seenLog = S.log.length; renderStatus();
-  let html = '', lastT = null;
+  const months = [];
   for (const e of [...S.log].reverse().slice(0, 120)) {
-    if (e.t !== lastT) { if (lastT !== null) html += '</ul>'; html += `<h5>${L.dateOf(e.t).label}</h5><ul class="log">`; lastT = e.t; }
-    html += `<li class="${e.kind}">${e.text}</li>`;
+    const g = months[months.length - 1];
+    if (g && g.t === e.t) g.list.push(e); else months.push({ t: e.t, list: [e] });
   }
-  openOverlay(`<button class="iconbtn close" id="xBtn" aria-label="閉じる">✕</button><h3>ニュース</h3><p class="sub">新しい順。ライバルの動きは灰色で表示</p>${html}</ul>`);
+  const html = months.map(g => `<h5>${L.dateOf(g.t).label}</h5>${eventArt(g.list)}<ul class="log">${g.list.map(e => `<li class="${e.kind}">${e.text}</li>`).join('')}</ul>`).join('');
+  openOverlay(`<button class="iconbtn close" id="xBtn" aria-label="閉じる">✕</button><h3>ニュース</h3><p class="sub">新しい順。ライバルの動きは灰色で表示</p>${html}`);
   $('xBtn').onclick = closeOverlay;
 }
 function showMenu() {
@@ -841,7 +855,7 @@ function showStartDetail(c) {
     <div class="h4">数値</div>
     <div class="meters">${meterP('産業力', x.ind)}${meterP('観光力', x.tour)}${meterP('満足度', x.sat)}${meterP('防災力', x.dis)}</div>
     <div class="h4">最初からいる人材</div><div class="people">${staff}</div>
-    ${L.ADVISORS.some(a => a.home === c) ? `<div class="h4">ゆかりの偉人アドバイザー</div><div class="advs">${L.ADVISORS.filter(a => a.home === c).map(a => `<div class="adv"><div class="top"><b class="nm">${a.name}</b><small>${a.title}${a.seki ? '・毎年9月に訪れる' : `・${a.cost}億円`}</small></div><span class="fx">${L.advFx(a)}</span>${a.cond ? `<span class="why">招く条件：${a.cond[2]}</span>` : ''}</div>`).join('')}</div>` : ''}
+    ${L.ADVISORS.some(a => a.home === c) ? `<div class="h4">ゆかりの偉人アドバイザー</div><div class="advs">${L.ADVISORS.filter(a => a.home === c).map(a => `<div class="adv">${advPic(a.id)}<div class="top"><b class="nm">${a.name}</b><small>${a.title}${a.seki ? '・毎年9月に訪れる' : `・${a.cost}億円`}</small></div><span class="fx">${L.advFx(a)}</span>${a.cond ? `<span class="why">招く条件：${a.cond[2]}</span>` : ''}</div>`).join('')}</div>` : ''}
     <div class="h4">隣の市町村（${ADJ[c].length}）</div><p class="note" style="margin:0">${nb}</p>
     <div class="h4">ライバル</div><p style="margin:0;display:flex;gap:6px;flex-wrap:wrap">${rivals}</p>
     ${pickMode() === 'region' ? goalHtml(st, c) : ''}
@@ -878,7 +892,7 @@ function showTitle() {
   // 圏域制覇を達成したセーブは、県内統一へ続けられるように残す
   const canCont = saved && (!saved.over || (saved.over.win && saved.over.region));
   const tabs = [['level', '難易度で選ぶ'], ['region', '圏域で選ぶ']].map(([k, lb]) => `<button data-by="${k}" aria-pressed="${pickBy() === k}">${lb}</button>`).join('');
-  openOverlay(`<div class="kicker">令和8年4月　岐阜県・21市19町2村</div>
+  openOverlay(`${art('img/title.webp', 'art-top art-hero')}<div class="kicker">令和8年4月　岐阜県・21市19町2村</div>
     <div class="logo">岐阜<em>統一</em>戦記</div>
     <p class="lead">あなたは岐阜県のある市町村の首長。交流と協定で信頼を集め、住民投票で合併を重ね、42市町村をひとつにまとめてください。</p>
     ${canCont ? `<div class="row" style="margin:0 0 18px"><button class="btn main" id="contBtn">つづきから（${L.dateOf(saved.turn).label}・${saved.factions[0] ? NAMES[saved.factions[0].capital] : ''}・${saved.over ? saved.goal + '圏域を制覇済み' : saved.mode === 'region' ? saved.goal + '圏域制覇' : '県内統一'}）</button></div>` : ''}
