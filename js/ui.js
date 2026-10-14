@@ -920,6 +920,8 @@ function showNews() {
   openOverlay(`<button class="iconbtn close" id="xBtn" aria-label="閉じる">✕</button><h3>ニュース</h3><p class="sub">新しい順。ライバルの動きは灰色で表示</p>${html}`);
   $('xBtn').onclick = closeOverlay;
 }
+// 版の番号（js/version.js）。反映されたかを一目で見分けるため、タイトルとメニューに出す
+const buildTag = () => `<span class="build num">ver. ${window.BUILD || '?'}</span>`;
 function showMenu() {
   openOverlay(`<button class="iconbtn close" id="xBtn" aria-label="閉じる">✕</button><h3>メニュー</h3>
     <p class="sub">進み具合はこのブラウザに自動で保存されます。</p>
@@ -928,7 +930,8 @@ function showMenu() {
     <label class="toggle"><input type="checkbox" id="btToggle" ${prefs.battle !== false ? 'checked' : ''}>見込み${L.BATTLE_MIN}〜${L.BATTLE_MAX}％の住民投票を決戦で決める（外すと今までの計算で決まる）</label>
     <div class="row"><button class="btn" id="guideBtn">ガイド（遊び方の説明）</button></div>
     ${S.over ? `<div class="row"><button class="btn main" id="overBtn">${S.over.win && S.over.region ? '圏域制覇の結果（続けて遊ぶ）' : '結果を見る'}</button></div>` : ''}
-    <div class="row"><button class="btn danger" id="resetBtn">最初からやり直す</button></div><div id="confirmBox"></div>`);
+    <div class="row"><button class="btn danger" id="resetBtn">最初からやり直す</button></div><div id="confirmBox"></div>
+    <p class="sub" style="margin-top:14px">${buildTag()}</p>`);
   $('xBtn').onclick = closeOverlay;
   $('guideBtn').onclick = showGuide;
   if ($('overBtn')) $('overBtn').onclick = showOver;
@@ -1093,7 +1096,7 @@ function showTitle() {
   // 圏域制覇を達成したセーブは、県内統一へ続けられるように残す
   const canCont = saved && (!saved.over || (saved.over.win && saved.over.region));
   const tabs = [['level', '難易度で選ぶ'], ['region', '圏域で選ぶ']].map(([k, lb]) => `<button data-by="${k}" aria-pressed="${pickBy() === k}">${lb}</button>`).join('');
-  openOverlay(`${art('img/title.webp', 'art-top art-hero')}<div class="kicker">令和8年4月　岐阜県・21市19町2村</div>
+  openOverlay(`${art('img/title.webp', 'art-top art-hero')}<div class="kicker"><span>令和8年4月　岐阜県・21市19町2村</span>${buildTag()}</div>
     <div class="logo">岐阜<em>統一</em>戦記</div>
     <p class="lead">あなたは岐阜県のある市町村の首長。交流と協定で信頼を集め、住民投票で合併を重ね、42市町村をひとつにまとめてください。</p>
     ${canCont ? `<div class="row" style="margin:0 0 18px"><button class="btn main" id="contBtn">つづきから（${L.dateOf(saved.turn).label}・${saved.factions[0] ? NAMES[saved.factions[0].capital] : ''}・${saved.over ? saved.goal + '圏域を制覇済み' : saved.mode === 'region' ? saved.goal + '圏域制覇' : '県内統一'}）</button></div>` : ''}
