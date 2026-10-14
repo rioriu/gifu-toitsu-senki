@@ -32,14 +32,14 @@
   // 住民投票と首長選挙で変わる言葉。首長選挙は、あなたの陣営が候補を立てた側（opts.defend なしで）か、現職で守る側（opts.defend）
   function wordsOf(o) {
     if (o.kind !== 'elect') return {
-      title: '住民投票の決戦', until: `${o.name}の住民投票まで`, gauge: '賛成', yes: '賛成', no: '反対', opp: '反対派', oppRally: '反対集会', oppTag: '反対',
+      title: '住民投票の決戦', kick: `${o.mine}と${o.name}の合併協議`, art: 'vote', until: `${o.name}の住民投票まで`, gauge: '賛成', yes: '賛成', no: '反対', opp: '反対派', oppRally: '反対集会', oppTag: '反対',
       expect: `${o.name}との合併は、賛成の見込みが`, up: '賛成', count: `${o.name} 住民投票（${o.mine}との合併）`, verdict: ['可決', '否決'],
       after: [`${o.name}はあなたの陣営に加わります。`, '関係度が下がり、2か月は再協議できません。'],
       ev: { title: '新しい市の名前', lead: `地元紙が「新市名は『${o.mine}』で調整」と報じた。${o.name}の人たちに動揺が広がっている。`, a: '新市名は公募で決めると約束する', b: '新市名は合併後に住民と決めると答える' }
     };
     const who = o.defend ? '現職' : '候補';
     return {
-      title: '首長選挙の決戦', until: `${o.name}の投票日まで`, gauge: '得票', yes: 'こちら', no: o.rival.replace(/陣営$/, ''), opp: '相手陣営', oppRally: '相手の決起集会', oppTag: '相手',
+      title: '首長選挙の決戦', kick: `${o.name}の首長選挙`, art: 'elect', until: `${o.name}の投票日まで`, gauge: '得票', yes: 'こちら', no: o.rival.replace(/陣営$/, ''), opp: '相手陣営', oppRally: '相手の決起集会', oppTag: '相手',
       expect: `${o.name}の首長選挙は、あなたの陣営の${who}の得票の見込みが`, up: '得票', count: `${o.name} 首長選挙（あなたの陣営の${who} 対 ${o.rival}）`, verdict: ['当選', '落選'],
       after: o.defend ? [`現職が再選し、${o.name}を守りました。`, `${o.name}は${o.rival}に移ります。`] : [`${o.name}はあなたの陣営に加わります。`, '関係度が下がりました。次の選挙は4年後です。'],
       ev: { title: '候補者討論会', lead: `地元のケーブルテレビで討論会。${o.rival}側が「その公約の財源はどこから出すのか」と迫った。`, a: '行財政の見直しで生み出すと具体的に答える', b: '住民と一緒に優先順位を決めると答える' }
@@ -148,7 +148,7 @@
     for (const s of st.skills) st.cds[s.id] = 0;
     build();
     readColors(); resize();
-    intro();
+    opening(intro);
     last = performance.now();
     raf = requestAnimationFrame(frame);
   }
@@ -629,6 +629,29 @@
   // ---------- シート ----------
   function openSheet(html) { $('btSheet').innerHTML = html; $('btScrim').hidden = false; $('btSheet').scrollTop = 0; st.paused = true; }
   function closeSheet() { $('btScrim').hidden = true; st.paused = false; last = performance.now(); }
+
+  // 幕開け：いきなり盤面にせず、挿絵と題を見せてから説明に移る。押せばすぐ進む
+  function opening(next) {
+    const o = opts, p = o.expect, mood = p < 45 ? '劣勢' : p > 55 ? '優勢' : '五分五分';
+    const box = document.createElement('div');
+    box.className = 'bt-open'; box.id = 'btOpen';
+    box.innerHTML = `<img class="bt-open-art" src="img/event/${words.art}.webp" alt="" onerror="this.remove()">
+      <div class="bt-open-band"><small>${words.kick}</small><b>${words.title}</b>
+        <span>${words.gauge}の見込み <em class="num">${p.toFixed(1)}％</em>・${mood}</span></div>
+      <p class="bt-open-go">運動員を地区へ走らせ、90秒で票を固める</p>
+      <p class="bt-open-tap">タップで進む</p>`;
+    el.appendChild(box);
+    const me = st;
+    let gone = false;
+    const go = () => {
+      if (gone || st !== me) return;
+      gone = true; clearTimeout(timer);
+      box.classList.add('out');
+      setTimeout(() => { box.remove(); if (st === me) next(); }, reduce() ? 0 : 320);
+    };
+    const timer = setTimeout(go, reduce() ? 1800 : 2900);
+    box.addEventListener('click', go);
+  }
 
   function intro() {
     const side = st.nodes.find(n => n.owner === 'me'), center = st.nodes.find(n => n.center);
