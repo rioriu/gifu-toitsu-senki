@@ -809,7 +809,7 @@
     counter: { label: '対抗提案', ap: 2, own: false, note: 'ほかの陣営の協議に割り込み、条件を競う' },
     raise: { label: '条件を上乗せ', ap: 1, own: false, note: '競り合いで選ばれやすくなる' },
     keep: { label: '引き留め', ap: 1, own: false, note: '住民投票の賛成 −5・満足度 +3' },
-    lure: { label: '補助金を上乗せ', ap: 1, own: false, note: '誘致合戦で選ばれやすくなる。負けたら戻る' },
+    lure: { label: '誘致合戦に補助金', ap: 1, own: false, note: '誘致合戦で選ばれやすくなる。負けたら戻る' },
     run: { label: '候補を擁立', ap: 2, own: false, note: '首長選挙で当選すれば、この市町村が自陣営に移る' },
     rally: { label: '演説会', ap: 1, own: false, note: `首長選挙の得票 +${RALLY_STEP}` }
   };

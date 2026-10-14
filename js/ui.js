@@ -404,11 +404,12 @@ function renderSheet() {
     const e = L.cmdEffect(S, 0, k, sc);
     // 産業力・観光力は陣営の魅力にも効くので、上がり幅を添える
     const ga = (k === 'ind' || k === 'tour') ? Math.min(e, 100 - x[k]) / 2 * x.pop / (L.totalPop(S, 0) || 1) : 0;
-    const note = EFF[k] ? `${EFF[k]} +${e}${ga >= 0.05 ? `・陣営の魅力 +${ga.toFixed(1)}` : ''}` : k === 'lure' ? `+${L.LURE_PT}点（${L.lureBid(S, 0)}/${L.LURE_MAX}段）・負けたら戻る`
+    const note = EFF[k] ? `${EFF[k]} +${e}${ga >= 0.05 ? `・陣営の魅力 +${ga.toFixed(1)}` : ''}`
       : k === 'run' ? `当選すれば自陣営に。得票の見込み ${Math.round(L.electExpect(S, 0, c))}％（${L.dateOf(x.elect).label}末に開票）`
       : k === 'rally' ? `得票 +${L.RALLY_STEP}（${race.rally[0]}/${L.RALLY_MAX}回）・いまの見込み ${Math.round(L.electMine(S, c))}％`
+      : k === 'lure' ? lureNote()
       : k === 'invite' ? `成功率 ${Math.round(L.inviteChance(S, c) * 100)}％・成功で産業力 +12・人口増${x.inviteLead ? '（前回のつながりで上乗せ）' : ''}` : def.note;
-    return `<button class="cmd${['talk', 'counter', 'raise', 'keep', 'lure', 'run', 'rally'].includes(k) ? ' primary' : ''}" data-cmd="${k}" aria-disabled="${!r.ok}">
+    return `<button class="cmd${['talk', 'counter', 'raise', 'keep', 'lure', 'run', 'rally'].includes(k) ? ' primary' : ''}${k === 'lure' ? ' wide' : ''}" data-cmd="${k}" aria-disabled="${!r.ok}">
       <span class="ttl"><strong>${def.label}</strong><span class="cost num">${cost ? cost + '億・' : ''}行動${def.ap}</span></span><small>${r.ok ? note : r.reason}</small></button>`;
   }).join('');
   // 一行に収まる要点だけ。他陣営・独立なら関係度、自陣営なら満足度を先に出す
@@ -429,14 +430,22 @@ const firmGain = o => `税収 毎月+${o.inc}億円・産業力 +${o.ind}・人�
 function lureList(rows, win) {
   return `<ul class="lrows">${rows.map(r => `<li class="${r.f === 0 ? 'me' : ''}${win !== undefined && r.f === win ? ' win' : ''}"><i class="dot" style="background:${colorVar(r.f)}"></i><span class="who">${facName(r.f)}<small>${NAMES[r.site]}・立地${r.pt}＋補助金${r.n}段</small></span><b class="num">${r.pt + r.n * L.LURE_PT}点</b></li>`).join('')}</ul>`;
 }
+// 候補地のボタンの説明：何の争いで、いま何位か、補助金を出すとどうなるか
+function lureNote() {
+  const lu = S.lure, rows = L.lureRows(S, ADJ), i = rows.findIndex(r => r.f === 0);
+  if (i < 0) return '';
+  const me = rows[i], other = rows[i === 0 ? 1 : 0];
+  const gap = other ? (i === 0 ? `2位と${me.total - other.total}点差` : `1位まで${other.total - me.total}点`) : '';
+  return `${lu.name}の進出先を${rows.length}陣営で争い中。いま${i + 1}位${gap ? `（${gap}）` : ''}・あと${lu.left}か月。補助金1段で+${L.LURE_PT}点（${me.n}/${L.LURE_MAX}段）・負けたら全額戻る`;
+}
 // 台帳に出す誘致合戦のカード。here は今見ている市町村（自分の候補地なら下のボタンを案内する）
 function lureHtml(here) {
   const lu = S.lure;
   if (!lu) return '';
   const mySite = L.lureSite(S, ADJ, 0);
   const act = !mySite ? `<span class="why">${lu.region}圏域とその隣に自陣営の市町村がないので参加できません</span>`
-    : here === mySite ? `<span class="why">あなたの候補地です。下の「補助金を上乗せ」で1段${L.cmdCost(S, 'lure', mySite, undefined, 0)}億円・+${L.LURE_PT}点。負けたら全額戻ります</span>`
-    : `<button class="linkbtn" data-lure-site="${mySite}">候補地の${NAMES[mySite]}で補助金を上乗せする</button>`;
+    : here === mySite ? `<span class="why">あなたの候補地です。上の「誘致合戦に補助金」で1段${L.cmdCost(S, 'lure', mySite, undefined, 0)}億円・+${L.LURE_PT}点。負けたら全額戻ります</span>`
+    : `<button class="linkbtn" data-lure-site="${mySite}">候補地の${NAMES[mySite]}で補助金を出す</button>`;
   return `<div class="lure"><div class="top"><b class="nm">誘致合戦</b><small>${lu.region}圏域・${lu.name}</small><span class="left num">あと${lu.left}か月</span></div>
     <span class="fx">選ばれると：${firmGain(lu)}</span>${lureList(L.lureRows(S, ADJ))}
     <span class="why">点数のいちばん高い候補地に決まります（差が小さいと入れ替わることも）</span>${act}</div>`;
@@ -451,7 +460,7 @@ function showLure(s, onOk) {
   if (start) {
     body = `<p class="sub">${s.region}圏域に${s.name}の進出話が来ました。候補地を持つ陣営が補助金を出し合って奪い合います。</p>
       <div class="lure"><span class="fx">選ばれると：${firmGain(s)}</span>${lureList(s.rows)}</div>
-      <p class="note">${mine ? `あなたの候補地は<b>${NAMES[mine.site]}</b>。台帳の「補助金を上乗せ」で1段${s.stepAmt}億円・+${L.LURE_PT}点（行動1）。負けたら補助金は戻ります。` : ''}${L.LURE_MONTHS}か月目の月末に、点数のいちばん高い候補地に決まります。産業力を上げると立地点も上がります。</p>`;
+      <p class="note">${mine ? `あなたの候補地は<b>${NAMES[mine.site]}</b>。候補地の「誘致合戦に補助金」で1段${s.stepAmt}億円・+${L.LURE_PT}点（行動1）。負けたら補助金は戻ります。` : ''}${L.LURE_MONTHS}か月目の月末に、点数のいちばん高い候補地に決まります。産業力を上げると立地点も上がります。</p>`;
   } else {
     const won = s.f === 0;
     body = `<p class="sub">${s.region}圏域・${s.name}の進出先</p>
@@ -1007,7 +1016,7 @@ const GUIDE = [
     '産業力と観光力は何もしないと少しずつ下がる。<b>産業振興</b>と<b>観光PR</b>で保つ']],
   ['誘致合戦', '企業の進出先を補助金で競う', [
     'ときどき大型の企業が圏域に進出先を探しに来る',
-    '圏域とその隣に市町村を持つ陣営が、候補地で<b>補助金を上乗せ</b>して競う',
+    '圏域とその隣に市町村を持つ陣営が、候補地で<b>補助金</b>を出し合って競う',
     '立地点（産業力など）＋補助金の点数が高い候補地に決まり、毎月の税収と産業力・人口が伸びる',
     '負けた補助金は戻る。企業の税収は、その市町村を持つ陣営に入る']],
   ['負けになるとき', '財源と満足度に気をつける', [
