@@ -814,6 +814,10 @@
     rally: { label: '演説会', ap: 1, own: false, note: `首長選挙の得票 +${RALLY_STEP}` }
   };
 
+  // 企業誘致の成功率。不調でも企業とのつながりが残り、次は成功しやすくなる（重ねて2回分まで）
+  const INVITE_FAIL_IND = 4, INVITE_LEAD = 0.2, INVITE_LEAD_MAX = 0.4;
+  function inviteChance(st, code) { const x = st.m[code]; return Math.min(0.95, 0.55 + x.ind / 400 + (x.inviteLead || 0)); }
+
   // 予算規模：お金を多く使うほど効果が大きい（ただし割高）
   const SCALES = [
     { label: '小規模', cost: 0.5, eff: 0.6 },
@@ -962,8 +966,9 @@
       case 'care': x.sat = clamp(x.sat + e, 0, 100); return `${who}${n}で子育て支援（満足度 ${Math.round(x.sat)}${sl}）`;
       case 'dis': x.dis = clamp(x.dis + e, 0, 100); return `${who}${n}の防災対策（防災力 ${x.dis}${sl}）`;
       case 'invite':
-        if (rnd(st) < 0.55 + x.ind / 400) { x.ind = clamp(x.ind + 12, 0, 100); x.pop += 1 + x.pop * 0.01; return `${who}${n}への企業誘致に成功（産業力 ${Math.round(x.ind)}）`; }
-        return `${who}${n}への企業誘致は不調に終わりました`;
+        if (rnd(st) < inviteChance(st, code)) { x.inviteLead = 0; x.ind = clamp(x.ind + 12, 0, 100); x.pop += 1 + x.pop * 0.01; return `${who}${n}への企業誘致に成功（産業力 ${Math.round(x.ind)}）`; }
+        x.ind = clamp(x.ind + INVITE_FAIL_IND, 0, 100); x.inviteLead = Math.min(INVITE_LEAD_MAX, (x.inviteLead || 0) + INVITE_LEAD);
+        return `${who}${n}への企業誘致は不調（つながりが残り、産業力 ${Math.round(x.ind)}・次は成功しやすい）`;
       case 'visit': st.rel[f][code] = clamp(st.rel[f][code] + e, 0, 100); return `${who}${n}と交流事業（関係度 ${Math.round(st.rel[f][code])}${sl}）`;
       case 'pact': x.pact.push(f); addFeat(st, f, 'pact'); st.rel[f][code] = clamp(st.rel[f][code] + 5, 0, 100); return `${who}${n}と連携協定を締結`;
       case 'talk': x.talk = { f, left: 3 }; return `${who}${n}に合併協議を申し入れ`;
@@ -1330,7 +1335,7 @@
     }
   }
 
-  const api = { ELECT_TERM, ELECT_WINDOW, RALLY_STEP, RALLY_MAX, ensureElect, electLeft, electExpect, electMine, raceDue, BATTLE_MIN, BATTLE_MAX, battleExpect, battlesDue, setBattle, JOIN_TOWNS, JOIN_RATIO, JOIN_SAT, AI_GUARD, voteExpect, AI_IDLE, FIRMS, LURE_MONTHS, LURE_PT, LURE_MAX, firmInc, sitePoint, lureSite, lureBid, lureScore, lureParts, lureRows, ADVISORS, ADV_BY_ID, ADV_MONTHS, ADV_COOL, ADV_SLOT2, ensureAdv, advCond, advMeasure, advOf, advFx, advBonus, advMax, advUsed, advHolder, canInviteAdv, inviteAdv, advise, advVote, regionLength, talksMax, APPEAL_TALKS, appeal, appealOf, appealRel, appealVote, INFO, REGIONS, MODES, regionCodes, goalOf, continueToUnify, CMDS, dateOf, difficultyOf, newGame, owned, apMax, totalPop, avgSat, incomeOf,
+  const api = { INVITE_FAIL_IND, INVITE_LEAD, inviteChance, ELECT_TERM, ELECT_WINDOW, RALLY_STEP, RALLY_MAX, ensureElect, electLeft, electExpect, electMine, raceDue, BATTLE_MIN, BATTLE_MAX, battleExpect, battlesDue, setBattle, JOIN_TOWNS, JOIN_RATIO, JOIN_SAT, AI_GUARD, voteExpect, AI_IDLE, FIRMS, LURE_MONTHS, LURE_PT, LURE_MAX, firmInc, sitePoint, lureSite, lureBid, lureScore, lureParts, lureRows, ADVISORS, ADV_BY_ID, ADV_MONTHS, ADV_COOL, ADV_SLOT2, ensureAdv, advCond, advMeasure, advOf, advFx, advBonus, advMax, advUsed, advHolder, canInviteAdv, inviteAdv, advise, advVote, regionLength, talksMax, APPEAL_TALKS, appeal, appealOf, appealRel, appealVote, INFO, REGIONS, MODES, regionCodes, goalOf, continueToUnify, CMDS, dateOf, difficultyOf, newGame, owned, apMax, totalPop, avgSat, incomeOf,
     factionIncome, grantOf, tagInfo, upkeep, cmdCost, cmdEffect, SCALES, SCALABLE, gradeOf, GRADE_PAY, faceOf, SCOUT, canScout, scout, ROLES, ABIL, ensureStaff, staffOf, staffMax, abil, roleVal, hireCandidates, hireCost, canHire, hire, assignRole, autoAssign, staffUpkeep, aiStaff, inTalk, BID_MAX, KEEP_MAX, KEEP_STEP, canDo, doCmd, endTurn, adjacentTo, talksOf, seasonX, clamp };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.GameLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);

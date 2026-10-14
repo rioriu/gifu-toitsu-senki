@@ -247,6 +247,24 @@ select { font: inherit; padding: 10px; border-radius: 10px; border: 1px solid va
 .stamp { position: absolute; right: 14px; top: 50%; width: 92px; height: 92px; margin-top: -46px; border-radius: 50%; border: 4px solid var(--bad); color: var(--bad); display: grid; place-items: center; font-family: var(--font-display); font-size: 26px; transform: rotate(-12deg); opacity: .92; background: color-mix(in srgb, var(--surface) 70%, transparent); animation: stamp .5s cubic-bezier(.2,1.6,.4,1) both .35s; }
 .stamp.pass { border-color: var(--me); color: var(--me); }
 @keyframes stamp { from { transform: rotate(-12deg) scale(2.2); opacity: 0; } to { transform: rotate(-12deg) scale(1); opacity: .92; } }
+/* 企業誘致：交渉中のバーが伸びきってから、結果と判が出る */
+.ballot.invite { display: grid; min-height: 104px; align-items: center; padding-right: 116px; }
+.ballot.invite > div:not(.stamp) { grid-area: 1 / 1; }
+.inv-wait { display: grid; gap: 8px; font-size: 13px; color: var(--ink-2); animation: inv-hide .25s 1.4s ease-in forwards; }
+.inv-wait span::after { content: '…'; display: inline-block; animation: inv-dots 1s steps(4) infinite; overflow: hidden; vertical-align: bottom; width: 0; }
+.inv-bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.inv-bar i { display: block; height: 100%; width: 100%; background: var(--warn); transform-origin: left; animation: inv-fill 1.35s cubic-bezier(.4, .1, .6, 1) both; }
+.inv-res { opacity: 0; animation: inv-show .3s 1.55s ease-out forwards; }
+.inv-res p { margin: 0; }
+.inv-lead { font-weight: 700; font-size: 15px; margin-bottom: 4px !important; }
+.ballot.invite .stamp { animation-delay: 1.6s; }
+.ballot.invite.now .inv-wait { display: none; }
+.ballot.invite.now .inv-res, .ballot.invite.now .stamp { animation: none; opacity: 1; }
+.ballot.invite.now .stamp { opacity: .92; }
+@keyframes inv-fill { from { transform: scaleX(0); } 70% { transform: scaleX(.82); } to { transform: scaleX(1); } }
+@keyframes inv-dots { to { width: 1.2em; } }
+@keyframes inv-hide { to { opacity: 0; visibility: hidden; } }
+@keyframes inv-show { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .factions { display: grid; gap: 8px; }
 .fac { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; align-items: center; }
 .fac.dead { opacity: .5; }

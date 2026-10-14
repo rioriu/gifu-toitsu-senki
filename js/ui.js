@@ -385,7 +385,8 @@ function renderSheet() {
     const ga = (k === 'ind' || k === 'tour') ? Math.min(e, 100 - x[k]) / 2 * x.pop / (L.totalPop(S, 0) || 1) : 0;
     const note = EFF[k] ? `${EFF[k]} +${e}${ga >= 0.05 ? `・陣営の魅力 +${ga.toFixed(1)}` : ''}` : k === 'lure' ? `+${L.LURE_PT}点（${L.lureBid(S, 0)}/${L.LURE_MAX}段）・負けたら戻る`
       : k === 'run' ? `当選すれば自陣営に。得票の見込み ${Math.round(L.electExpect(S, 0, c))}％（${L.dateOf(x.elect).label}末に開票）`
-      : k === 'rally' ? `得票 +${L.RALLY_STEP}（${race.rally[0]}/${L.RALLY_MAX}回）・いまの見込み ${Math.round(L.electMine(S, c))}％` : def.note;
+      : k === 'rally' ? `得票 +${L.RALLY_STEP}（${race.rally[0]}/${L.RALLY_MAX}回）・いまの見込み ${Math.round(L.electMine(S, c))}％`
+      : k === 'invite' ? `成功率 ${Math.round(L.inviteChance(S, c) * 100)}％・成功で産業力 +12・人口増${x.inviteLead ? '（前回のつながりで上乗せ）' : ''}` : def.note;
     return `<button class="cmd${['talk', 'counter', 'raise', 'keep', 'lure', 'run', 'rally'].includes(k) ? ' primary' : ''}" data-cmd="${k}" aria-disabled="${!r.ok}">
       <span class="ttl"><strong>${def.label}</strong><span class="cost num">${cost ? cost + '億・' : ''}行動${def.ap}</span></span><small>${r.ok ? note : r.reason}</small></button>`;
   }).join('');
@@ -479,12 +480,30 @@ function runCmd(k) {
   const sc = L.SCALABLE.includes(k) ? S.budget : undefined;
   const r = L.canDo(S, ADJ, 0, k, sel, S.ap, sc);
   if (!r.ok) { toast(r.reason); return; }
-  const c = sel, before = statsOf(c);
+  const c = sel, before = { ...statsOf(c), pop: S.m[c].pop }, chance = k === 'invite' ? L.inviteChance(S, c) : 0;
   const text = L.doCmd(S, NAMES, 0, k, c, sc);
   S.ap -= L.CMDS[k].ap;
   S.log.push({ t: S.turn, text, kind: 'good' }); seenLog = S.log.length;
+  if (k === 'invite') { render(); save(); showInvite(c, before, chance); return; }
   toast(text); render(); save();
   showGain(c, before);
+}
+// 企業誘致：すぐに結果を出さず、打診している間を見せてから判を押す。不調でも残るものを伝える
+function showInvite(c, before, chance) {
+  const x = S.m[c], ok = !x.inviteLead, still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const pop = x.pop - before.pop;
+  const res = ok
+    ? `<p class="inv-lead" style="color:var(--good)">進出が決まりました。</p><p class="sub">産業力 +${Math.round(x.ind - before.ind)}・人口 +${pop.toFixed(1)}千人</p>`
+    : `<p class="inv-lead" style="color:var(--bad)">今回は見送られました。</p><p class="sub">それでも企業とのつながりは残りました。産業力 +${Math.round(x.ind - before.ind)}、次の企業誘致は成功率が上がります（いま ${Math.round(L.inviteChance(S, c) * 100)}％）。</p>`;
+  openOverlay(`${art('img/event/firm.webp', 'art-top art-band')}<h3>企業誘致</h3>
+    <p class="sub">${NAMES[c]}への進出を、企業に打診しています（成功率 ${Math.round(chance * 100)}％）</p>
+    <div class="ballot invite${still ? ' now' : ''}">
+      <div class="inv-wait"><span>交渉中</span><div class="inv-bar"><i></i></div></div>
+      <div class="inv-res">${res}</div>
+      <div class="stamp ${ok ? 'pass' : ''}">${ok ? '成功' : '不調'}</div>
+    </div>
+    <div class="row"><button class="btn main" id="okBtn">次へ</button></div>`);
+  $('okBtn').onclick = () => { closeOverlay(); showGain(c, before); };
 }
 
 // ---------- 月を終える ----------
