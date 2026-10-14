@@ -57,7 +57,13 @@
   const RIVAL_EXTRA = ['21213', '21209', '21212', '21211', '21210', '21219', '21220', '21208', '21217'];
   // ライバルの本拠地は、プレイヤーからこの数だけ離す（3 なら、あいだに市町村を2つ挟む）。置けないときだけ2まで縮める
   const RIVAL_GAP = 3;
+  // ライバル同士は、あいだに市町村をこの数−1だけ挟めるまで離す。そこまで離せたら、あとは大きな都市を選ぶ
+  const RIVAL_SPREAD = 4;
   const FACTION_COLORS = ['me', 'r1', 'r2', 'r3'];
+  // 災害：季節ごとに1か月前に予報が出て、翌月に圏域を襲う。襲われた市町村ごとに、防災力の％で被害を防ぐ
+  // HIT：圏域の市町村それぞれが襲われる確率。SAT：被害の満足度。SAVE：防いだときの満足度。被害を受けた市町村には、隣の陣営が AID_MONTHS か月のあいだ災害支援できる
+  const DISASTERS = { 豪雨: { months: [6, 7, 8, 9], p: 0.45 }, 豪雪: { months: [12, 1, 2], p: 0.5 } };
+  const DIS_HIT = 0.4, DIS_SAT = 8, DIS_SAVE = 3, AID_REL = 18, AID_SAT = 5, AID_MONTHS = 2;
 
   function hash(s) { let h = 2166136261; for (const ch of s) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
@@ -97,6 +103,11 @@
   // 圏域制覇の長さの目安（市町村の数で決まる）
   function regionLength(r) { const n = regionCodes(r).length; return n <= 5 ? '短め' : n <= 11 ? 'ふつう' : '長め'; }
   function regionCodes(r) { return Object.keys(INFO).filter(c => INFO[c][0] === r); }
+  // 予報の災害が襲う範囲。豪雨は圏域、豪雪は飛騨圏域と郡上市
+  function disArea(fc) { return fc.kind === '豪雪' ? Object.keys(INFO).filter(c => INFO[c][0] === '飛騨' || c === '21219') : regionCodes(fc.region); }
+  function disLabel(fc) { return fc.kind === '豪雪' ? '飛騨圏域と郡上市' : `${fc.region}圏域`; }
+  // 災害支援できるのは、被害から AID_MONTHS か月のあいだ
+  function aidable(st, c) { const x = st.m[c]; return x.hurt !== undefined && st.turn - x.hurt < AID_MONTHS; }
   // いまの目標：対象の市町村と、その名前
   function goalOf(st) {
     if (st.mode === 'region') { const codes = regionCodes(st.goal); return { codes, label: `${st.goal}圏域`, region: st.goal }; }
@@ -110,8 +121,8 @@
     st.mode = mode === 'region' ? 'region' : 'unify';
     if (st.mode === 'region') st.goal = INFO[startCode][0];
     // ライバルは主要都市から3つ。プレイヤーから RIVAL_GAP 以上離し、ライバル同士も隣り合わせない
-    const hop = { [startCode]: 0 }, queue = [startCode];
-    while (queue.length) { const c = queue.shift(); for (const n of adj[c]) if (hop[n] === undefined) { hop[n] = hop[c] + 1; queue.push(n); } }
+    const hopFrom = s => { const h = { [s]: 0 }, q = [s]; while (q.length) { const c = q.shift(); for (const n of adj[c]) if (h[n] === undefined) { h[n] = h[c] + 1; q.push(n); } } return h; };
+    const hop = hopFrom(startCode), hops = {};
     const rivals = [];
     const free = (c, gap) => hop[c] >= gap && !rivals.includes(c) && !rivals.some(r => adj[r].includes(c));
     let cands = RIVAL_CANDIDATES, extra = RIVAL_EXTRA;
@@ -129,11 +140,19 @@
     // 1つは、ちょうど RIVAL_GAP の距離の都市に置く（遠い相手ばかりだと張り合いがない）
     const first = [...cands, ...extra].find(c => hop[c] === RIVAL_GAP && free(c, RIVAL_GAP));
     if (first && rivals.length < 3 && !rivals.some(r => hop[r] === RIVAL_GAP)) rivals.push(first);
-    for (const [gap, list] of [[RIVAL_GAP, cands], [RIVAL_GAP, extra], [2, cands]]) {
-      for (const c of list) {
-        if (rivals.length >= 3) break;
-        if (free(c, gap)) rivals.push(c);
+    // 残りは、ほかのライバルからいちばん離れた都市（同じなら主要都市の順）。固まって置かれないように。
+    // 離れた主要都市があれば、こちらの隣の隣（あいだに1つ）でも1陣営までは置く（そのぶん1つ離れた扱いにする）
+    const spread = c => Math.min(RIVAL_SPREAD, ...rivals.map(r => (hops[r] || (hops[r] = hopFrom(r)))[c])) - (hop[c] < RIVAL_GAP ? 1 : 0);
+    const near = () => rivals.some(r => hop[r] < RIVAL_GAP);
+    while (rivals.length < 3) {
+      let best = null, bs = -Infinity;
+      for (const c of [...cands, ...extra]) {
+        if (!free(c, cands.includes(c) && !near() ? 2 : RIVAL_GAP)) continue;
+        const v = spread(c); if (v > bs) { bs = v; best = c; }
       }
+      if (!best) best = cands.find(c => free(c, 2));
+      if (!best) break;
+      rivals.push(best);
     }
     const caps = [startCode, ...rivals];
     st.factions = caps.map((c, i) => ({
@@ -811,7 +830,8 @@
     keep: { label: '引き留め', ap: 1, own: false, note: '住民投票の賛成 −5・満足度 +3' },
     lure: { label: '誘致合戦に補助金', ap: 1, own: false, note: '誘致合戦で選ばれやすくなる。負けたら戻る' },
     run: { label: '候補を擁立', ap: 2, own: false, note: '首長選挙で当選すれば、この市町村が自陣営に移る' },
-    rally: { label: '演説会', ap: 1, own: false, note: `首長選挙の得票 +${RALLY_STEP}` }
+    rally: { label: '演説会', ap: 1, own: false, note: `首長選挙の得票 +${RALLY_STEP}` },
+    aid: { label: '災害支援', ap: 1, own: false, note: `関係度 +${AID_REL}・満足度 +${AID_SAT}` }
   };
 
   // 企業誘致の成功率。不調でも企業とのつながりが残り、次は成功しやすくなる（重ねて2回分まで）
@@ -841,6 +861,7 @@
       case 'ind': case 'care': return Math.round(3 + p * 0.05);
       case 'tour': return Math.round(2 + p * 0.035);
       case 'dis': return Math.round(2 + p * 0.04);
+      case 'aid': return Math.round(3 + p * 0.03);
       case 'invite': return Math.round(20 + p * 0.08);
       case 'visit': return 4;
       case 'pact': return 0;
@@ -880,6 +901,13 @@
       if (!site) return { ok: false, reason: `${L.region}圏域とその隣に自陣営の市町村がありません` };
       if (site !== code) return { ok: false, reason: `候補地は${x.owner === f ? 'ほかの市町村' : '自陣営の市町村'}です` };
       if (lureBid(st, f) >= LURE_MAX) return { ok: false, reason: `補助金は${LURE_MAX}段までです` };
+      return { ok: true, cost };
+    }
+    if (cmd === 'aid') {
+      if (x.owner === f) return { ok: false, reason: '自陣営です' };
+      if (!adjacentTo(st, adj, code, f)) return { ok: false, reason: '自陣営と隣り合っていません' };
+      if (!aidable(st, code)) return { ok: false, reason: '災害の被害を受けていません' };
+      if (x.aided && x.aided[f] === x.hurt) return { ok: false, reason: 'この被害には支援済みです' };
       return { ok: true, cost };
     }
     if (cmd === 'rally') {
@@ -969,6 +997,10 @@
         if (rnd(st) < inviteChance(st, code)) { x.inviteLead = 0; x.ind = clamp(x.ind + 12, 0, 100); x.pop += 1 + x.pop * 0.01; return `${who}${n}への企業誘致に成功（産業力 ${Math.round(x.ind)}）`; }
         x.ind = clamp(x.ind + INVITE_FAIL_IND, 0, 100); x.inviteLead = Math.min(INVITE_LEAD_MAX, (x.inviteLead || 0) + INVITE_LEAD);
         return `${who}${n}への企業誘致は不調（つながりが残り、産業力 ${Math.round(x.ind)}・次は成功しやすい）`;
+      case 'aid': {
+        st.rel[f][code] = clamp(st.rel[f][code] + AID_REL, 0, 100); x.sat = clamp(x.sat + AID_SAT, 0, 100); x.aided = { ...x.aided, [f]: x.hurt };
+        return `${who}${n}に${x.hurtKind || '災害'}の災害支援（関係度 ${Math.round(st.rel[f][code])}）`;
+      }
       case 'visit': st.rel[f][code] = clamp(st.rel[f][code] + e, 0, 100); return `${who}${n}と交流事業（関係度 ${Math.round(st.rel[f][code])}${sl}）`;
       case 'pact': x.pact.push(f); addFeat(st, f, 'pact'); st.rel[f][code] = clamp(st.rel[f][code] + 5, 0, 100); return `${who}${n}と連携協定を締結`;
       case 'talk': x.talk = { f, left: 3 }; return `${who}${n}に合併協議を申し入れ`;
@@ -1051,6 +1083,11 @@
       // 合併協議の準備ができていて、お金だけ足りないときは貯める
       const saving = border.some(c => { const r = canDo(st, adj, f, 'talk', c, 99); return !r.ok && r.reason.startsWith('財源') && voteExpect(st, f, c) >= AI_VOTE; });
       let done = false;
+      // 災害の予報が出ていれば、ときどき備える（予報の範囲で防災力の低い、人口の多い市町村から）
+      if (!saving && st.fc && fac.money > 30 && rnd(st) < 0.5) {
+        const area = disArea(st.fc), t = owned(st, f).filter(c => area.includes(c) && st.m[c].dis < 60).sort((a, b) => st.m[b].pop - st.m[a].pop)[0];
+        if (t && tryDo('dis', t)) continue;
+      }
       // ときどき、いちばん大きな市町村の魅力を上げる
       if (!saving && fac.money > 40 && rnd(st) < 0.2) {
         const big = owned(st, f).sort((a, b) => st.m[b].pop - st.m[a].pop)[0];
@@ -1295,18 +1332,9 @@
     if (fest[month]) addLog(st, `高山市は${fest[month]}`, 'season');
     if (month === 5) addLog(st, '長良川鵜飼が開幕。岐阜市・関市の観光収入が伸びます', 'season');
     if (month === 8) { st.m['21219'].sat = clamp(st.m['21219'].sat + 5, 0, 100); addLog(st, '郡上おどりが最高潮。郡上市の満足度が上がりました', 'season'); }
-    // 豪雨（6〜9月）
-    if ([6, 7, 8, 9].includes(month) && rnd(st) < 0.3) {
-      const south = codes.filter(c => INFO[c][0] !== '飛騨');
-      const c = south[Math.floor(rnd(st) * south.length)];
-      disaster(st, names, c, '豪雨', ownerName, res);
-    }
-    // 豪雪（12〜2月）
-    if ([12, 1, 2].includes(month) && rnd(st) < 0.4) {
-      const north = codes.filter(c => INFO[c][0] === '飛騨' || c === '21219');
-      const c = north[Math.floor(rnd(st) * north.length)];
-      disaster(st, names, c, '豪雪', ownerName, res);
-    }
+    // 災害：予報の出ていた災害が来る。そのあと、来月の分の予報を出す
+    if (st.fc && st.fc.turn <= st.turn) { disaster(st, names, st.fc, res); st.fc = null; }
+    forecast(st, names, res);
     // 企業進出
     if (rnd(st) < 0.12) {
       const cand = codes.filter(c => st.m[c].ind >= 55);
@@ -1319,23 +1347,53 @@
     }
   }
 
-  function disaster(st, names, c, kind, ownerName, res) {
-    const x = st.m[c];
-    const hit = rnd(st) * 100 > x.dis;
-    if (hit) {
-      x.sat = clamp(x.sat - 9, 0, 100);
-      if (x.owner >= 0) st.factions[x.owner].money -= Math.round(3 + x.pop * 0.03);
-      addLog(st, `${kind}で${names[c]}${ownerName(c)}に被害。満足度と財源が下がりました`, x.owner === 0 ? 'bad' : 'info');
-      res.steps.push({ kind: 'event', code: c, text: `${kind}で${names[c]}に被害`, tone: 'bad' });
-      if (x.owner === 0) res.news.push(`${names[c]}で${kind}の被害`);
-    } else {
-      x.sat = clamp(x.sat + 2, 0, 100);
-      addLog(st, `${kind}が${names[c]}${ownerName(c)}を襲いましたが、備えで被害を防ぎました`, x.owner === 0 ? 'good' : 'info');
-      res.steps.push({ kind: 'event', code: c, text: `${kind}が${names[c]}を襲うも被害なし`, tone: 'good' });
+  // 来月が災害の季節なら、ときどき予報を出す。豪雨は、あなたの陣営の市町村がある圏域に出やすい
+  function forecast(st, names, res) {
+    const next = dateOf(st.turn + 1);
+    for (const kind in DISASTERS) {
+      const D = DISASTERS[kind];
+      if (st.fc || !D.months.includes(next.month) || rnd(st) >= D.p) continue;
+      let region = null;
+      if (kind === '豪雨') {
+        const regs = REGIONS.filter(r => r !== '飛騨'), w = r => regionCodes(r).some(c => st.m[c].owner === 0) ? 3 : 1;
+        let k = rnd(st) * regs.reduce((a, r) => a + w(r), 0);
+        region = regs.find(r => (k -= w(r)) < 0) || regs[regs.length - 1];
+      }
+      st.fc = { kind, region, turn: st.turn + 1 };
+      const mine = disArea(st.fc).filter(c => st.m[c].owner === 0), where = disLabel(st.fc);
+      addLog(st, `予報：${next.label}、${where}で${kind}の恐れ。${mine.length ? `自陣営の${mine.map(c => names[c]).join('・')}は、今月のうちに防災対策で備えられます` : ''}`, mine.length ? 'bad' : 'info');
+      if (mine.length) { res.news.push(`来月 ${where}で${kind}の恐れ`); res.steps.push({ kind: 'event', code: mine[0], text: `来月、${where}で${kind}の恐れ`, tone: 'warn' }); }
     }
   }
+  // 予報の範囲の市町村を、それぞれ DIS_HIT の確率で襲う。防災力の％で被害を防ぐ
+  function disaster(st, names, fc, res) {
+    const area = disArea(fc), kind = fc.kind;
+    let hits = area.filter(() => rnd(st) < DIS_HIT);
+    if (!hits.length) hits = [area[Math.floor(rnd(st) * area.length)]];
+    const lost = [], saved = [];
+    for (const c of hits) {
+      const x = st.m[c];
+      if (rnd(st) * 100 > x.dis) {
+        x.sat = clamp(x.sat - DIS_SAT, 0, 100);
+        if (x.owner >= 0) st.factions[x.owner].money -= Math.round(2 + x.pop * 0.02);
+        x.hurt = st.turn; x.hurtKind = kind;
+        lost.push(c);
+        res.steps.push({ kind: 'event', code: c, text: `${kind}で${names[c]}に被害`, tone: 'bad' });
+      } else {
+        x.sat = clamp(x.sat + DIS_SAVE, 0, 100);
+        saved.push(c);
+        res.steps.push({ kind: 'event', code: c, text: `${kind}が${names[c]}を襲うも、備えで被害なし`, tone: 'good' });
+      }
+    }
+    const nm = cs => cs.map(c => names[c] + (st.m[c].owner === 0 ? '（自陣営）' : '')).join('・');
+    const myLost = lost.filter(c => st.m[c].owner === 0), mySaved = saved.filter(c => st.m[c].owner === 0);
+    addLog(st, `${kind}が${disLabel(fc)}を襲いました。${lost.length ? `被害：${nm(lost)}（満足度と財源が下がりました）。` : ''}${saved.length ? `備えで防いだ：${nm(saved)}` : ''}`, myLost.length ? 'bad' : mySaved.length ? 'good' : 'info');
+    if (myLost.length) res.news.push(`${myLost.map(c => names[c]).join('・')}で${kind}の被害`);
+    else if (mySaved.length) res.news.push(`${kind}の被害を防いだ`);
+  }
 
-  const api = { INVITE_FAIL_IND, INVITE_LEAD, inviteChance, ELECT_TERM, ELECT_WINDOW, RALLY_STEP, RALLY_MAX, ensureElect, electLeft, electExpect, electMine, raceDue, BATTLE_MIN, BATTLE_MAX, battleExpect, battlesDue, setBattle, JOIN_TOWNS, JOIN_RATIO, JOIN_SAT, AI_GUARD, voteExpect, AI_IDLE, FIRMS, LURE_MONTHS, LURE_PT, LURE_MAX, firmInc, sitePoint, lureSite, lureBid, lureScore, lureParts, lureRows, ADVISORS, ADV_BY_ID, ADV_MONTHS, ADV_COOL, ADV_SLOT2, ensureAdv, advCond, advMeasure, advOf, advFx, advBonus, advMax, advUsed, advHolder, canInviteAdv, inviteAdv, advise, advVote, regionLength, talksMax, APPEAL_TALKS, appeal, appealOf, appealRel, appealVote, INFO, REGIONS, MODES, regionCodes, goalOf, continueToUnify, CMDS, dateOf, difficultyOf, newGame, owned, apMax, totalPop, avgSat, incomeOf,
+
+  const api = { DISASTERS, DIS_SAT, AID_REL, AID_SAT, AID_MONTHS, disArea, disLabel, aidable, INVITE_FAIL_IND, INVITE_LEAD, inviteChance, ELECT_TERM, ELECT_WINDOW, RALLY_STEP, RALLY_MAX, ensureElect, electLeft, electExpect, electMine, raceDue, BATTLE_MIN, BATTLE_MAX, battleExpect, battlesDue, setBattle, JOIN_TOWNS, JOIN_RATIO, JOIN_SAT, AI_GUARD, voteExpect, AI_IDLE, FIRMS, LURE_MONTHS, LURE_PT, LURE_MAX, firmInc, sitePoint, lureSite, lureBid, lureScore, lureParts, lureRows, ADVISORS, ADV_BY_ID, ADV_MONTHS, ADV_COOL, ADV_SLOT2, ensureAdv, advCond, advMeasure, advOf, advFx, advBonus, advMax, advUsed, advHolder, canInviteAdv, inviteAdv, advise, advVote, regionLength, talksMax, APPEAL_TALKS, appeal, appealOf, appealRel, appealVote, INFO, REGIONS, MODES, regionCodes, goalOf, continueToUnify, CMDS, dateOf, difficultyOf, newGame, owned, apMax, totalPop, avgSat, incomeOf,
     factionIncome, grantOf, tagInfo, upkeep, cmdCost, cmdEffect, SCALES, SCALABLE, gradeOf, GRADE_PAY, faceOf, SCOUT, canScout, scout, ROLES, ABIL, ensureStaff, staffOf, staffMax, abil, roleVal, hireCandidates, hireCost, canHire, hire, assignRole, autoAssign, staffUpkeep, aiStaff, inTalk, BID_MAX, KEEP_MAX, KEEP_STEP, canDo, doCmd, endTurn, adjacentTo, talksOf, seasonX, clamp };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.GameLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);
