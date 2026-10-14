@@ -68,6 +68,9 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--ink); outl
 .stat small { font-size: 10.5px; color: var(--ink-2); letter-spacing: .06em; }
 .stat b { font-size: 15px; }
 .stat b.neg { color: var(--bad); }
+.stat small em { font-style: normal; font-weight: 700; letter-spacing: 0; }
+.stat small em.up { color: var(--good); }
+.stat small em.down { color: var(--bad); }
 .pips { display: flex; gap: 3px; margin-top: 3px; }
 .pips i { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--me); }
 .pips i.on { background: var(--me); }
@@ -84,6 +87,11 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--ink); outl
 /* 市町村名のふりがな */
 rt { font-size: .55em; font-weight: 400; letter-spacing: 0; font-family: var(--font-body); }
 #map path.mu.out { opacity: .45; }
+#map #realm { pointer-events: none; }
+#map .realm { fill: none; stroke-width: 5; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+#map .realm.me { stroke-width: 6; }
+#map .realm-fill { stroke-width: 1; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+#map .realm.out, #map .realm-fill.out { opacity: .45; }
 #map .sel { fill: none; stroke: var(--ink); stroke-width: 3; vector-effect: non-scaling-stroke; pointer-events: none; }
 #map .talk2 { animation-delay: -.6s; }
 #map .talk { fill: none; stroke-width: 3; vector-effect: non-scaling-stroke; stroke-dasharray: 6 5; pointer-events: none; animation: march 1.2s linear infinite; }
@@ -169,6 +177,17 @@ rt { font-size: .55em; font-weight: 400; letter-spacing: 0; font-family: var(--f
 .cmd .cost { font-size: 11.5px; color: var(--ink-2); }
 .cmd[aria-disabled="true"] { opacity: .55; }
 .cmd.primary { border-color: var(--me); }
+/* 「いまやるといいこと」から来たときに、使うコマンドを光らせる */
+.cmd.suggest { animation: bt-callout .55s ease-in-out 4 alternate; }
+.todo { display: grid; gap: 4px; margin-top: 8px; }
+.todo .h5 { font-size: 12px; color: var(--ink-2); font-weight: 700; letter-spacing: .04em; }
+.todo button { text-align: left; border: 1px solid var(--line); border-left: 4px solid var(--me); background: var(--surface-2); border-radius: 10px; padding: 0 10px; cursor: pointer; color: var(--ink); min-height: 40px; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.todo button b { font-size: 11.5px; color: var(--me); }
+.todo .note { margin: 0; }
+.share { margin: 6px 0 0; font-size: 12px; color: var(--ink-2); }
+.share b { color: var(--ink); }
+.share b.down { color: var(--bad); }
+.share b.up { color: var(--good); }
 /* 説明の長いボタン（誘致合戦）は横いっぱいにして、説明を折り返す */
 .cmd.wide { grid-column: 1 / -1; }
 .cmd.wide small { white-space: normal; }

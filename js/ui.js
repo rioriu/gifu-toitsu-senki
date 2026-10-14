@@ -202,8 +202,27 @@ function paintMap() {
     if (own >= 0) {
       const isCap = S.factions[own].capital === c;
       p.style.fill = `color-mix(in srgb, ${colorVar(own)} ${isCap ? 92 : 68}%, var(--land))`;
-    } else if (x.pact.includes(0)) p.style.fill = `color-mix(in srgb, var(--me) 22%, var(--land))`;
-    else p.style.fill = frontier.has(c) ? 'var(--land-hi)' : 'var(--land)';
+      p.style.stroke = `color-mix(in srgb, ${colorVar(own)} 45%, var(--surface))`;
+    } else {
+      p.style.stroke = '';
+      if (x.pact.includes(0)) p.style.fill = `color-mix(in srgb, var(--me) 22%, var(--land))`;
+      else p.style.fill = frontier.has(c) ? 'var(--land-hi)' : 'var(--land)';
+    }
+  }
+  // 陣営ごとに外周だけを太く縁取り、ひとかたまりに見せる。陣営の市町村を太い線でなぞってから同じ色で塗り直すと、
+  // 内側の線は塗りに隠れて、外向きの縁だけが残る
+  const rg = $('realm'); rg.textContent = '';
+  for (const f of S.factions) {
+    const codes = Object.keys(S.m).filter(c => (replay ? replay.owners[c] : S.m[c].owner) === f.id);
+    if (!codes.length) continue;
+    const g = document.createElementNS(NS, 'g'), edge = `color-mix(in srgb, ${colorVar(f.id)} 70%, var(--ink))`;
+    for (const k of ['realm' + (f.id === 0 ? ' me' : ''), 'realm-fill']) for (const c of codes) {
+      const p = document.createElementNS(NS, 'path'); p.setAttribute('d', BYCODE[c].d); p.setAttribute('class', k + (pathEls[c].classList.contains('out') ? ' out' : ''));
+      p.setAttribute('fill-rule', 'evenodd');
+      if (k === 'realm-fill') { p.style.fill = pathEls[c].style.fill; p.style.stroke = pathEls[c].style.stroke; } else p.style.stroke = edge;
+      g.appendChild(p);
+    }
+    rg.appendChild(g);
   }
   const tg = $('talks'); tg.textContent = '';
   for (const c in S.m) {
@@ -242,6 +261,9 @@ function renderStatus() {
   $('date').innerHTML = `<small>令和${d.reiwa}年</small><b>${d.month}月</b>`;
   $('date').setAttribute('aria-label', d.label);
   const mo = $('money'); mo.innerHTML = `${me.money}億<span class="unit">円</span>`; mo.className = 'num' + (me.money < 0 ? ' neg' : '');
+  // 月を終えたときの陣営全体の収支（次の月の収入から維持費と給与を引いた額）
+  const net = L.factionIncome(S, 0, L.dateOf(S.turn + 1).month) - L.upkeep(S, 0);
+  $('net').textContent = `月${net >= 0 ? '+' : '−'}${Math.abs(net)}`; $('net').className = 'num ' + (net >= 0 ? 'up' : 'down');
   // 丸が多いとバーに収まらないので、6以上は数字で出す
   const max = L.apMax(S, 0); $('pips').innerHTML = max > 5 ? `<b class="num">${S.ap}/${max}</b>` : Array.from({ length: max }, (_, i) => `<i class="${i < S.ap ? 'on' : ''}"></i>`).join('');
   $('pips').setAttribute('aria-label', `行動力 ${S.ap}/${max}`);
@@ -340,7 +362,7 @@ function renderSheet() {
     const lureTag = S.lure ? `<span class="tag lure-tag">誘致合戦 あと${S.lure.left}か月</span>` : '';
     // 災害の予報：自陣営の市町村が範囲に入っていれば、防災力と一緒に知らせる
     const fcMine = fcTowns();
-    const fcTag = fcMine.length ? `<span class="tag lure-tag">来月 ${S.fc.kind}の恐れ</span>` : '';
+    const fcTag = fcMine.length ? `<span class="tag lure-tag">${S.fc.kind}の予報</span>` : '';
     const fcNote = fcMine.length ? `<p class="note talking" style="color:var(--bad)">予報：来月、${L.disLabel(S.fc)}で${S.fc.kind}の恐れ。${fcMine.map(c => `<b>${NAMES[c]}</b>（被害を防ぐ確率 ${Math.round(S.m[c].dis)}％）`).join('、')}。今月のうちに「防災対策」で備えられます</p>` : '';
     // 首長選挙：対立候補を立てられた自陣営の市町村と、候補を立てられる隣の市町村
     const races = Object.keys(S.m).filter(c => { const r = S.m[c].race; return r && (r.ch === 0 || r.inc === 0); });
@@ -348,10 +370,11 @@ function renderSheet() {
     const electNote = (races.length ? `<p class="note talking">首長選挙：${races.map(c => `<b>${NAMES[c]}</b>（${S.m[c].race.inc === 0 ? '対立候補あり' : 'あなたの候補'}・見込み${Math.round(L.electMine(S, c))}％・あと${L.electLeft(S, c) + 1}か月）`).join('、')}。台帳の「演説会」で得票を伸ばせます</p>` : '')
       + (open.length ? `<p class="note">${open.map(c => NAMES[c]).join('・')}で首長選挙が近づいています。候補を立てて当選すれば、自陣営に移ります</p>` : '');
     sheetFrame(`${TI.icon(me.capital)}<h2>${rb(me.capital)}陣営</h2><span class="tag">${L.owned(S, 0).length}市町村</span>${goalTag()}${fcTag}${lureTag}${advTag}`,
-      first ? '<b>隣の市町村をタップ</b>して、交流事業で関係度を上げましょう' : fcMine.length ? `<b class="alert">来月 ${L.disLabel(S.fc)}で${S.fc.kind}の恐れ</b>` : '',
-      '',
+      first ? '<b>隣の市町村をタップ</b>して、交流事業で関係度を上げましょう' : '',
+      todoHtml(),
       `<p class="facts num">人口 ${L.totalPop(S, 0).toFixed(1)}千人 · 平均満足度 ${Math.round(L.avgSat(S, 0))} · 収入 ${L.factionIncome(S, 0, L.dateOf(S.turn).month)}億円/月 · 維持費 ${L.upkeep(S, 0)}億円 · 魅力 ${Math.round(L.appeal(S, 0))} · 協議 同時${L.talksMax(S, 0)}件まで</p>` + fcNote + lureHtml() + electNote + tips + advNote);
     for (const b of sh.querySelectorAll('[data-open-staff]')) b.onclick = () => showStaff('adv');
+    for (const b of sh.querySelectorAll('[data-todo]')) b.onclick = () => goTodo(b.dataset.todo, b.dataset.cmd);
     bindLure(sh);
     return;
   }
@@ -432,7 +455,7 @@ function renderSheet() {
   const line = (mine ? `満足度 ${Math.round(x.sat)} · 魅力 ${Math.round(L.appealOf(S, c))} · 収入 ${L.incomeOf(S, c, month).toFixed(1)}億円`
     : `満足度 ${Math.round(x.sat)} · 人口 ${x.pop.toFixed(0)}千人`) + (alert ? ` <b class="alert">${alert}</b>` : '');
   sheetFrame(`${TI.icon(c)}<h2>${rb(c)}</h2>${ownerTag}<span class="tag">${info[0]}</span>`, line,
-    `${mine ? '' : relGauge(c)}${cmds.some(k => L.SCALABLE.includes(k)) ? budgetHtml() : ''}<div class="cmds">${btns}</div>`,
+    `${mine ? shareLine(c, month) : relGauge(c)}${cmds.some(k => L.SCALABLE.includes(k)) ? budgetHtml() : ''}<div class="cmds">${btns}</div>`,
     `<div class="meters">${meter('産業力', x.ind, '', 'ind')}${meter('観光力', x.tour, '', 'tour')}${meter('満足度', x.sat, '', 'sat')}${meter('防災力', x.dis, '', 'dis')}</div>
     <p class="facts num">人口 ${x.pop.toFixed(1)}千人 · 収入 ${L.incomeOf(S, c, month).toFixed(1)}億円/月</p>${notes}`);
   for (const b of sh.querySelectorAll('.cmd')) b.onclick = () => runCmd(b.dataset.cmd);
@@ -445,6 +468,48 @@ const firmGain = o => `税収 毎月+${o.inc}億円・産業力 +${o.ind}・人�
 // 点数の表：立地点＋補助金（1段6点）。win を渡すと決まった陣営に印を付ける
 function lureList(rows, win) {
   return `<ul class="lrows">${rows.map(r => `<li class="${r.f === 0 ? 'me' : ''}${win !== undefined && r.f === win ? ' win' : ''}"><i class="dot" style="background:${colorVar(r.f)}"></i><span class="who">${facName(r.f)}<small>${NAMES[r.site]}・立地${r.pt}＋補助金${r.n}段</small></span><b class="num">${r.pt + r.n * L.LURE_PT}点</b></li>`).join('')}</ul>`;
+}
+// 陣営の画面に出す「いまやるといいこと」。急ぐものから4つまで。押すとその市町村を開き、使うコマンドを光らせる
+function todoList() {
+  // 同じ種類は2つまで（予報だけで埋まらないように）
+  const out = [], seen = new Set(), own = L.owned(S, 0), per = h => out.filter(t => t.head === h).length;
+  const add = (c, cmd, head, text) => { if (out.length < 4 && per(head) < 2 && !seen.has(c + cmd) && L.canDo(S, ADJ, 0, cmd, c, 99, L.SCALABLE.includes(cmd) ? S.budget : undefined).ok) { seen.add(c + cmd); out.push({ c, cmd, head, text }); } };
+  for (const c of fcTowns().filter(c => S.m[c].dis < 80).sort((a, b) => S.m[b].pop - S.m[a].pop)) add(c, 'dis', `${S.fc.kind}の予報`, `${NAMES[c]}（防ぐ確率 ${Math.round(S.m[c].dis)}％）→ 防災対策`);
+  for (const c of own) { const t = S.m[c].talk; if (t && !L.inTalk(t, 0)) add(c, 'keep', '狙われている', `${NAMES[c]}（住民投票まであと${t.left}か月）→ 引き留め`); }
+  for (const c in S.m) { const r = S.m[c].race; if (r && r.inc === 0) add(c, 'rally', '対立候補', `${NAMES[c]}（得票の見込み ${Math.round(L.electMine(S, c))}％）→ 演説会`); }
+  for (const c in S.m) { const t = S.m[c].talk; if (t && t.rival !== undefined && L.inTalk(t, 0) && t.bids[0] <= t.bids[t.f === 0 ? t.rival : t.f]) add(c, 'raise', '競り合いで負けている', `${NAMES[c]}→ 条件を上乗せ`); }
+  if (S.lure) { const site = L.lureSite(S, ADJ, 0), rows = L.lureRows(S, ADJ); if (site && rows[0] && rows[0].f !== 0) add(site, 'lure', '誘致合戦', `${S.lure.name}（いま${rows.findIndex(r => r.f === 0) + 1}位）→ 補助金`); }
+  for (const c in S.m) if (L.aidable(S, c)) add(c, 'aid', '災害支援', `${NAMES[c]}（関係度 +${L.AID_REL}）`);
+  for (const c in S.m) add(c, 'talk', '合併協議できる', `${NAMES[c]}（関係度 ${Math.round(S.rel[0][c])}）`);
+  for (const c of own.filter(c => S.m[c].sat < 45).sort((a, b) => S.m[a].sat - S.m[b].sat)) add(c, 'care', '満足度が低い', `${NAMES[c]}（${Math.round(S.m[c].sat)}）→ 子育て支援`);
+  for (const c in S.m) add(c, 'run', '首長選挙に候補を立てられる', `${NAMES[c]}（見込み ${Math.round(L.electExpect(S, 0, c))}％）`);
+  for (const c in S.m) add(c, 'pact', '連携協定できる', `${NAMES[c]}（関係度 ${Math.round(S.rel[0][c])}）`);
+  // 何もなければ、協定に近い隣を1つ
+  if (!out.length) {
+    const near = Object.keys(S.m).filter(c => S.m[c].owner !== 0 && L.adjacentTo(S, ADJ, c, 0)).sort((a, b) => S.rel[0][b] - S.rel[0][a])[0];
+    if (near) add(near, 'visit', '関係度を上げる', `${NAMES[near]}（関係度 ${Math.round(S.rel[0][near])}）→ 交流事業`);
+  }
+  return out;
+}
+function todoHtml() {
+  const list = todoList();
+  if (!list.length) return '';
+  const ap = S.ap > 0 ? '' : '<p class="note">今月の行動力は使い切りました。「月を終える」で次の月へ</p>';
+  return `<div class="todo"><div class="h5">いまやるといいこと</div>${list.map(t => `<button data-todo="${t.c}" data-cmd="${t.cmd}"><b>${t.head}</b> <span>${t.text}</span></button>`).join('')}${ap}</div>`;
+}
+// 自陣営の市町村を選んだとき、陣営の中での位置を1行で（2市町村以上のとき）
+function shareLine(c, month) {
+  const own = L.owned(S, 0);
+  if (own.length < 2) return '';
+  const all = own.reduce((a, k) => a + L.incomeOf(S, k, month), 0), share = all > 0 ? L.incomeOf(S, c, month) / all * 100 : 0;
+  const pop = S.m[c].pop / L.totalPop(S, 0) * 100, d = Math.round(S.m[c].sat - L.avgSat(S, 0));
+  return `<p class="share">${NAMES[S.factions[0].capital]}陣営 ${own.length}市町村のうち：収入の<b class="num">${Math.round(share)}％</b> · 人口の<b class="num">${Math.round(pop)}％</b> · 満足度は陣営平均${d === 0 ? 'と同じ' : `より<b class="num ${d < 0 ? 'down' : 'up'}">${d > 0 ? '+' : '−'}${Math.abs(d)}</b>`}</p>`;
+}
+// やることの市町村を開き、使うコマンドのボタンを光らせる
+function goTodo(c, cmd) {
+  sel = null; select(c);
+  const b = $('sheet').querySelector(`[data-cmd="${cmd}"]`);
+  if (b) { b.classList.add('suggest'); b.scrollIntoView({ block: 'nearest' }); }
 }
 // 自陣営で予報の範囲に入っている市町村
 function fcTowns() { return S.fc ? L.disArea(S.fc).filter(c => S.m[c].owner === 0) : []; }
