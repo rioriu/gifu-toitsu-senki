@@ -19,6 +19,7 @@
 | `js/version.js` | 版の番号（`window.BUILD`）。修正を出すたびに1つ増やす。タイトルとメニューに「ver. N」と出る |
 | `js/ui.js` | 画面の処理・描画・セーブ |
 | `docs/spec-v0.1.md` | ゲーム仕様書 v0.1 |
+| `AGENTS.md` | AIエージェント（Codex・Claude Code）向けの作業の決まり。版の番号の上げ方など。`CLAUDE.md` はこれを読み込むだけ |
 | `docs/images.md` | 画像（イラスト）の依頼書。置き場所・サイズ・描く内容・著作権の決まり |
 | `img/` | イラスト（`docs/images.md` のとおりに置く）。ないファイルは画面に出さない |
 | `tools/balance.js` | バランス確認。人に近い考え方のボットに何度も遊ばせ、スタート地点ごとの勝率を測る（`node tools/balance.js 100 21507`） |
