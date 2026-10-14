@@ -5,6 +5,20 @@ const TI = window.TownIcons || { icon: () => '', nameOf: () => '' };
 const SAVE_KEY = 'gifu-toitsu-v1';
 const NAMES = {}, ADJ = {}, AREA = {}, BYCODE = {};
 for (const m of MAP.muni) { NAMES[m.code] = m.name; ADJ[m.code] = m.adj; AREA[m.code] = m.area; BYCODE[m.code] = m; }
+// 市町村名の読み（ふりがな）。地図・見出し・市町村選び・決戦の幕開けに付ける。メニューで外せる
+const KANA = {
+  '21201': 'ぎふし', '21202': 'おおがきし', '21203': 'たかやまし', '21204': 'たじみし', '21205': 'せきし', '21206': 'なかつがわし',
+  '21207': 'みのし', '21208': 'みずなみし', '21209': 'はしまし', '21210': 'えなし', '21211': 'みのかもし', '21212': 'ときし',
+  '21213': 'かかみがはらし', '21214': 'かにし', '21215': 'やまがたし', '21216': 'みずほし', '21217': 'ひだし', '21218': 'もとすし',
+  '21219': 'ぐじょうし', '21220': 'げろし', '21221': 'かいづし', '21302': 'ぎなんちょう', '21303': 'かさまつちょう', '21341': 'ようろうちょう',
+  '21361': 'たるいちょう', '21362': 'せきがはらちょう', '21381': 'ごうどちょう', '21382': 'わのうちちょう', '21383': 'あんぱちちょう',
+  '21401': 'いびがわちょう', '21403': 'おおのちょう', '21404': 'いけだちょう', '21421': 'きたがたちょう', '21501': 'さかほぎちょう',
+  '21502': 'とみかちょう', '21503': 'かわべちょう', '21504': 'ひちそうちょう', '21505': 'やおつちょう', '21506': 'しらかわちょう',
+  '21507': 'ひがししらかわむら', '21521': 'みたけちょう', '21604': 'しらかわむら'
+};
+const kanaOn = () => prefs.kana !== false;
+// 市町村名を、ふりがな付きの HTML にする（ふりがなを外していれば名前だけ）
+const rb = c => kanaOn() && KANA[c] ? `<ruby>${NAMES[c]}<rt>${KANA[c]}</rt></ruby>` : NAMES[c];
 let S = null, sel = null, seenLog = 0;
 const $ = id => document.getElementById(id);
 const svg = $('map');
@@ -18,7 +32,7 @@ function ownerName(c) { const o = S.m[c].owner; return o < 0 ? '独立' : S.fact
 
 // ---------- 地図 ----------
 const NS = 'http://www.w3.org/2000/svg';
-const pathEls = {}, labelEls = {};
+const pathEls = {}, labelEls = {}, kanaEls = {};
 function buildMap() {
   const g = $('munis'), lg = $('labels');
   for (const m of MAP.muni) {
@@ -29,6 +43,9 @@ function buildMap() {
     const t = document.createElementNS(NS, 'text');
     t.setAttribute('x', m.lx); t.setAttribute('y', m.ly); t.textContent = m.name;
     lg.appendChild(t); labelEls[m.code] = t;
+    const k = document.createElementNS(NS, 'text');
+    k.setAttribute('x', m.lx); k.setAttribute('class', 'kana'); k.textContent = KANA[m.code] || '';
+    lg.appendChild(k); kanaEls[m.code] = k;
   }
   const chips = $('chips');
   for (const r of ['自陣', '全県', ...L.REGIONS]) {
@@ -114,17 +131,21 @@ function updateLabels() {
   const lg = $('labels');
   lg.setAttribute('font-size', (12 / ppu).toFixed(2));
   lg.setAttribute('stroke-width', (3 / ppu).toFixed(2));
-  const fs = 12 / ppu, placed = [];
+  // ふりがなは名前の上に小さく。そのぶん重なりを見る枠も上へ広げる
+  const fs = 12 / ppu, kfs = fs * 0.6, kana = kanaOn(), placed = [];
   const isCap = c => S && S.factions.some(f => f.alive && f.capital === c);
   const order = Object.keys(labelEls).sort((a, b) => (b === sel) - (a === sel) || isCap(b) - isCap(a) || AREA[b] - AREA[a]);
   for (const c of order) {
-    const m = BYCODE[c], w = NAMES[c].length * fs * 1.05 + fs * 0.4, h = fs * 1.3;
-    const box = { x0: m.lx - w / 2, x1: m.lx + w / 2, y0: m.ly - h / 2, y1: m.ly + h / 2 };
+    const m = BYCODE[c], kw = kana ? (KANA[c] || '').length * kfs * 1.02 : 0, w = Math.max(NAMES[c].length * fs * 1.05, kw) + fs * 0.4, h = fs * 1.3;
+    const box = { x0: m.lx - w / 2, x1: m.lx + w / 2, y0: m.ly - h / 2 - (kana ? kfs * 1.1 : 0), y1: m.ly + h / 2 };
     const must = c === sel || isCap(c) || (replay && replay.focus === c);
     const fits = Math.sqrt(AREA[c]) * ppu > 30 && !placed.some(q => q.x0 < box.x1 && box.x0 < q.x1 && q.y0 < box.y1 && box.y0 < q.y1);
     const show = must || fits;
     if (show) placed.push(box);
     labelEls[c].style.display = show ? '' : 'none';
+    const k = kanaEls[c];
+    k.style.display = show && kana ? '' : 'none';
+    if (show && kana) { k.setAttribute('y', (m.ly - fs * 0.5 - kfs * 0.6).toFixed(2)); k.setAttribute('font-size', kfs.toFixed(2)); k.setAttribute('stroke-width', (2.4 / ppu).toFixed(2)); }
     labelEls[c].setAttribute('class', isCap(c) ? 'cap' : '');
   }
 }
@@ -322,7 +343,7 @@ function renderSheet() {
     const open = Object.keys(S.m).filter(c => S.m[c].owner > 0 && !S.m[c].race && L.electLeft(S, c) < L.ELECT_WINDOW && L.adjacentTo(S, ADJ, c, 0));
     const electNote = (races.length ? `<p class="note talking">首長選挙：${races.map(c => `<b>${NAMES[c]}</b>（${S.m[c].race.inc === 0 ? '対立候補あり' : 'あなたの候補'}・見込み${Math.round(L.electMine(S, c))}％・あと${L.electLeft(S, c) + 1}か月）`).join('、')}。台帳の「演説会」で得票を伸ばせます</p>` : '')
       + (open.length ? `<p class="note">${open.map(c => NAMES[c]).join('・')}で首長選挙が近づいています。候補を立てて当選すれば、自陣営に移ります</p>` : '');
-    sheetFrame(`${TI.icon(me.capital)}<h2>${NAMES[me.capital]}陣営</h2><span class="tag">${L.owned(S, 0).length}市町村</span>${goalTag()}${lureTag}${advTag}`,
+    sheetFrame(`${TI.icon(me.capital)}<h2>${rb(me.capital)}陣営</h2><span class="tag">${L.owned(S, 0).length}市町村</span>${goalTag()}${lureTag}${advTag}`,
       first ? '<b>隣の市町村をタップ</b>して、交流事業で関係度を上げましょう' : '',
       '',
       `<p class="facts num">人口 ${L.totalPop(S, 0).toFixed(1)}千人 · 平均満足度 ${Math.round(L.avgSat(S, 0))} · 収入 ${L.factionIncome(S, 0, L.dateOf(S.turn).month)}億円/月 · 維持費 ${L.upkeep(S, 0)}億円 · 魅力 ${Math.round(L.appeal(S, 0))} · 協議 同時${L.talksMax(S, 0)}件まで</p>` + lureHtml() + electNote + tips + advNote);
@@ -393,7 +414,7 @@ function renderSheet() {
   // 一行に収まる要点だけ。他陣営・独立なら関係度、自陣営なら満足度を先に出す
   const line = (mine ? `満足度 ${Math.round(x.sat)} · 魅力 ${Math.round(L.appealOf(S, c))} · 収入 ${L.incomeOf(S, c, month).toFixed(1)}億円`
     : `満足度 ${Math.round(x.sat)} · 人口 ${x.pop.toFixed(0)}千人`) + (alert ? ` <b class="alert">${alert}</b>` : '');
-  sheetFrame(`${TI.icon(c)}<h2>${NAMES[c]}</h2>${ownerTag}<span class="tag">${info[0]}</span>`, line,
+  sheetFrame(`${TI.icon(c)}<h2>${rb(c)}</h2>${ownerTag}<span class="tag">${info[0]}</span>`, line,
     `${mine ? '' : relGauge(c)}${cmds.some(k => L.SCALABLE.includes(k)) ? budgetHtml() : ''}<div class="cmds">${btns}</div>`,
     `<div class="meters">${meter('産業力', x.ind, '', 'ind')}${meter('観光力', x.tour, '', 'tour')}${meter('満足度', x.sat, '', 'sat')}${meter('防災力', x.dis, '', 'dis')}</div>
     <p class="facts num">人口 ${x.pop.toFixed(1)}千人 · 収入 ${L.incomeOf(S, c, month).toFixed(1)}億円/月</p>${notes}`);
@@ -542,6 +563,7 @@ function battleOpts(c) {
   return {
     code: c, name: NAMES[c], d: m.d, lx: m.lx, ly: m.ly, pop: S.m[c].pop, expect: L.battleExpect(S, c),
     dir: { x: dx / len, y: dy / len }, mine: NAMES[S.factions[0].capital], mineFac: S.factions[0].name,
+    nameHtml: rb(c), mineHtml: rb(S.factions[0].capital),
     staff, adv: a ? { name: a.name, say: a.say } : null,
     ...(race ? { kind: 'elect', defend, rival: S.factions[other].name } : {})
   };
@@ -925,6 +947,7 @@ const buildTag = () => `<span class="build num">ver. ${window.BUILD || '?'}</spa
 function showMenu() {
   openOverlay(`<button class="iconbtn close" id="xBtn" aria-label="閉じる">✕</button><h3>メニュー</h3>
     <p class="sub">進み具合はこのブラウザに自動で保存されます。</p>
+    <label class="toggle"><input type="checkbox" id="knToggle" ${kanaOn() ? 'checked' : ''}>市町村名にふりがなを付ける</label>
     <label class="toggle"><input type="checkbox" id="rpToggle" ${prefs.replay ? 'checked' : ''}>月を終えたあと、相手の動きを地図で見せる</label>
     <label class="toggle"><input type="checkbox" id="ssToggle" ${prefs.season !== false ? 'checked' : ''}>季節の行事（高山祭・鵜飼など）を、月を終えたときに知らせる</label>
     <label class="toggle"><input type="checkbox" id="btToggle" ${prefs.battle !== false ? 'checked' : ''}>見込み${L.BATTLE_MIN}〜${L.BATTLE_MAX}％の住民投票を決戦で決める（外すと今までの計算で決まる）</label>
@@ -935,6 +958,7 @@ function showMenu() {
   $('xBtn').onclick = closeOverlay;
   $('guideBtn').onclick = showGuide;
   if ($('overBtn')) $('overBtn').onclick = showOver;
+  $('knToggle').onchange = e => { prefs.kana = e.target.checked; savePrefs(); updateLabels(); renderSheet(); };
   $('rpToggle').onchange = e => { prefs.replay = e.target.checked; savePrefs(); };
   $('btToggle').onchange = e => { prefs.battle = e.target.checked; savePrefs(); };
   $('ssToggle').onchange = e => { prefs.season = e.target.checked; savePrefs(); };
@@ -1043,7 +1067,7 @@ function showStartDetail(c) {
   const nb = ADJ[c].map(n => NAMES[n]).join('、');
   openOverlay(`<button class="btn" id="backBtn">← 市町村選びに戻る</button>
     <div class="kicker" style="margin-top:16px">${info[0]}圏域・${L.difficultyOf(c)}・${L.MODES[pickMode()].label}</div>
-    <div class="townhead">${TI.icon(c, 'big')}<div><div class="logo" style="font-size:clamp(32px,10vw,48px)">${NAMES[c]}</div><small>${TI.nameOf(c)}</small></div></div>
+    <div class="townhead">${TI.icon(c, 'big')}<div><div class="logo" style="font-size:clamp(32px,10vw,48px)">${rb(c)}</div><small>${TI.nameOf(c)}</small></div></div>
     <div class="grid2">
       <div class="kv"><span>人口</span><b class="num">${info[1]}千人</b></div>
       <div class="kv"><span>開始時の財源</span><b class="num">${pv.money}億円</b></div>
@@ -1071,8 +1095,8 @@ function showStartDetail(c) {
 // 畳んだ中のリストは数が多いので、2列に収まる短い書き方にする
 function startBtn(c, by, compact) {
   const pv = startPreview(c), info = L.INFO[c], head = by === 'region' ? L.difficultyOf(c) : info[0];
-  if (compact) return `<button data-start="${c}">${TI.icon(c)}<span>${NAMES[c]}<small>${head}・${info[1]}千人${info[2] ? '・' + info[2] : ''}</small><span class="money num">財源${pv.money}億・月${signed(pv.net)}億</span></span></button>`;
-  return `<button data-start="${c}">${TI.icon(c)}<span>${NAMES[c]}<small>${head}・人口${info[1]}千人${info[2] ? '・' + info[2] : ''}</small><span class="money num">財源 ${pv.money}億円・月収支 ${signed(pv.net)}億円</span></span></button>`;
+  if (compact) return `<button data-start="${c}">${TI.icon(c)}<span>${rb(c)}<small>${head}・${info[1]}千人${info[2] ? '・' + info[2] : ''}</small><span class="money num">財源${pv.money}億・月${signed(pv.net)}億</span></span></button>`;
+  return `<button data-start="${c}">${TI.icon(c)}<span>${rb(c)}<small>${head}・人口${info[1]}千人${info[2] ? '・' + info[2] : ''}</small><span class="money num">財源 ${pv.money}億円・月収支 ${signed(pv.net)}億円</span></span></button>`;
 }
 const pickBy = () => prefs.pickBy === 'region' ? 'region' : 'level';
 // 難易度ごと：おすすめを並べ、残りは「その他の市町村」に畳む。圏域ごと：圏域ごとに畳む

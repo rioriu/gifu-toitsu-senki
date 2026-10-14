@@ -80,6 +80,9 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--ink); outl
 #map path.mu { fill: var(--land); stroke: var(--surface); stroke-width: 1; vector-effect: non-scaling-stroke; stroke-linejoin: round; transition: fill .4s; }
 #map .lbl text { fill: var(--ink); paint-order: stroke; stroke: var(--surface); stroke-linejoin: round; font-family: var(--font-body); font-weight: 700; pointer-events: none; text-anchor: middle; dominant-baseline: middle; }
 #map .lbl text.cap { font-family: var(--font-display); font-weight: 400; }
+#map .lbl text.kana { font-weight: 400; fill: var(--ink-2); }
+/* 市町村名のふりがな */
+rt { font-size: .55em; font-weight: 400; letter-spacing: 0; font-family: var(--font-body); }
 #map path.mu.out { opacity: .45; }
 #map .sel { fill: none; stroke: var(--ink); stroke-width: 3; vector-effect: non-scaling-stroke; pointer-events: none; }
 #map .talk2 { animation-delay: -.6s; }
@@ -393,7 +396,8 @@ select { font: inherit; padding: 10px; border-radius: 10px; border: 1px solid va
 @keyframes bt-zoom { from { opacity: 0; transform: scale(1.14); } 30% { opacity: .7; } to { opacity: .7; transform: scale(1); } }
 .bt-open-band { width: 100%; background: var(--me); padding: 14px 16px 16px; display: grid; justify-items: center; gap: 4px; text-align: center; box-shadow: 0 6px 24px rgba(0, 0, 0, .35); clip-path: inset(0 100% 0 0); animation: bt-wipe .45s .15s cubic-bezier(.2, .8, .2, 1) forwards; }
 @keyframes bt-wipe { to { clip-path: inset(0 0 0 0); } }
-.bt-open-band small { font-size: 12px; letter-spacing: .12em; opacity: .9; }
+.bt-open-band small { font-size: 13px; letter-spacing: .12em; opacity: .92; }
+.bt-open-band rt { font-size: .62em; letter-spacing: .02em; }
 .bt-open-band b { font-family: var(--font-display); font-weight: 400; font-size: 34px; letter-spacing: .14em; line-height: 1.25; animation: bt-stamp .5s .45s ease-out both; }
 .bt-open-band span { font-size: 13px; letter-spacing: .04em; animation: bt-rise .4s .9s ease-out both; }
 .bt-open-band em { font-style: normal; font-family: var(--font-display); font-size: 17px; }
