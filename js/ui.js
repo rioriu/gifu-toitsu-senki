@@ -55,7 +55,8 @@ function buildMap() {
   for (const r of ['自陣', '全県', ...L.REGIONS]) {
     const b = document.createElement('button'); b.textContent = r; b.dataset.r = r;
     b.setAttribute('aria-pressed', r === '自陣' ? 'true' : 'false');
-    b.onclick = () => zoomRegion(r);
+    // 「自陣」は市町村の選択も外し、陣営の画面（いまやるといいこと）に戻す。台帳の高さが変わってから寄る
+    b.onclick = () => { if (r === '自陣' && S && sel) { sel = null; detailOpen = false; paintMap(); renderSheet(); } zoomRegion(r); };
     chips.appendChild(b);
   }
 }
