@@ -583,7 +583,11 @@ function ensureVisible(c) {
   if (cx < vb.x || cx > vb.x + vb.w) dx = cx - (vb.x + vb.w / 2);
   if (dx || dy) animateTo({ x: vb.x + dx, y: vb.y + dy, w: vb.w, h: vb.h });
 }
-function render() { renderStatus(); paintMap(); renderSheet(); }
+function render() { renderStatus(); paintMap(); renderSheet(); sfxHint(); }
+// 効果音をオンにする案内。オフのあいだだけ出し、× で閉じたら二度と出さない（メニューからはいつでもオンにできる）
+function sfxHint() { $('sfxHint').hidden = !(window.Sfx && S && prefs.sound !== true && prefs.soundHint !== false); }
+$('sfxOn').onclick = () => { prefs.sound = true; savePrefs(); if (window.Sfx) { Sfx.set(true); sfx('up'); } sfxHint(); toast('効果音をオンにしました。メニューで切り替えられます'); };
+$('sfxX').onclick = () => { prefs.soundHint = false; savePrefs(); sfxHint(); toast('効果音はメニューからオンにできます'); };
 
 // 地図をタップするたびに詳細はたたむ。海や県の外をタップしたら選択も外す
 function select(c) { sel = c && sel !== c ? c : null; detailOpen = false; if (sel) sfx('tap'); paintMap(); renderSheet(); if (sel) requestAnimationFrame(() => ensureVisible(sel)); }
@@ -1075,7 +1079,7 @@ function showMenu() {
   $('xBtn').onclick = closeOverlay;
   $('guideBtn').onclick = showGuide;
   if ($('overBtn')) $('overBtn').onclick = showOver;
-  $('sfToggle').onchange = e => { prefs.sound = e.target.checked; savePrefs(); if (window.Sfx) { Sfx.set(prefs.sound); sfx('up'); } };
+  $('sfToggle').onchange = e => { prefs.sound = e.target.checked; savePrefs(); if (window.Sfx) { Sfx.set(prefs.sound); sfx('up'); } sfxHint(); };
   $('knToggle').onchange = e => { prefs.kana = e.target.checked; savePrefs(); updateLabels(); renderSheet(); };
   $('rpToggle').onchange = e => { prefs.replay = e.target.checked; savePrefs(); };
   $('btToggle').onchange = e => { prefs.battle = e.target.checked; savePrefs(); };
