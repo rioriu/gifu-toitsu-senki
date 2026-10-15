@@ -104,6 +104,11 @@ rt { font-size: .55em; font-weight: 400; letter-spacing: 0; font-family: var(--f
 .chips { position: absolute; left: 12px; right: 12px; top: 8px; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
 .chips button { flex: none; border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 4px 11px; font-size: 12.5px; cursor: pointer; }
 .chips button[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+/* 「自陣」は陣営の色。家の印を付け、地域の切り替えとのあいだに区切りの線を入れる */
+.chips button.home { display: inline-flex; align-items: center; gap: 4px; border: 1.5px solid var(--me); color: var(--me); font-weight: 700; margin-right: 7px; position: relative; overflow: visible; }
+.chips button.home svg { width: 13px; height: 13px; }
+.chips button.home::after { content: ''; position: absolute; right: -8px; top: 4px; bottom: 4px; width: 1px; background: var(--line); }
+.chips button.home[aria-pressed="true"] { background: var(--me); color: #fff; border-color: var(--me); }
 .legend { position: absolute; left: 12px; top: 44px; display: flex; gap: 8px; flex-wrap: wrap; font-size: 10.5px; color: var(--ink-2); background: color-mix(in srgb, var(--surface) 80%, transparent); padding: 2px 8px; border-radius: 6px; max-width: calc(100% - 24px); pointer-events: none; }
 /* 効果音をオンにする案内。凡例の下、右寄せ */
 .sfxhint { position: absolute; right: 12px; top: 74px; display: flex; align-items: stretch; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; box-shadow: 0 4px 14px rgb(0 0 0 / .14); overflow: hidden; z-index: 1; }

@@ -55,6 +55,8 @@ function buildMap() {
   for (const r of ['自陣', '全県', ...L.REGIONS]) {
     const b = document.createElement('button'); b.textContent = r; b.dataset.r = r;
     b.setAttribute('aria-pressed', r === '自陣' ? 'true' : 'false');
+    // 「自陣」だけは陣営の色と家の印で、地域の切り替え（全県・圏域）と見分けられるようにする
+    if (r === '自陣') { b.className = 'home'; b.insertAdjacentHTML('afterbegin', '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 7.5 8 2.5l6 5V14H10v-4H6v4H2z" fill="currentColor"/></svg>'); }
     // 「自陣」は市町村の選択も外し、陣営の画面（いまやるといいこと）に戻す。台帳の高さが変わってから寄る
     b.onclick = () => { if (r === '自陣' && S && sel) { sel = null; detailOpen = false; paintMap(); renderSheet(); } zoomRegion(r); };
     chips.appendChild(b);
