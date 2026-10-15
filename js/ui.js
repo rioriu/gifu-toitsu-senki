@@ -410,6 +410,12 @@ function renderSheet() {
   else if (x.owner >= 0) notes += `<p class="note">次の首長選挙：${L.dateOf(x.elect).label}${eLeft < L.ELECT_WINDOW ? `（あと${eLeft + 1}か月。${mine ? 'ほかの陣営が対立候補を立てられる時期です' : '隣り合っていれば候補を立てられます'}）` : ''}</p>`;
   if (x.firms && x.firms.length) notes += `<p class="note">立地企業：${x.firms.map(k => k.name).join('、')}（税収 毎月+${L.firmInc(x)}億円。この市町村を持つ陣営に入ります）</p>`;
   if (S.lure && L.lureRows(S, ADJ).some(r => r.site === c)) notes += lureHtml(c);
+  // 満足度が低い：人口の流出と独立の動き
+  if (x.indep) {
+    if (mine) alert = `独立の動き・あと${x.indep.left}か月`;
+    notes += `<p class="note talking" style="${mine ? 'color:var(--bad)' : ''}">独立を求める声が上がっています。あと${x.indep.left}か月のうちに満足度を${L.CALM_SAT}以上に戻さないと、独立を問う住民投票になります（いま ${Math.round(x.sat)}）</p>`;
+  }
+  if (x.owner >= 0 && L.outflow(x)) notes += `<p class="note"${mine ? ' style="color:var(--bad)"' : ''}>満足度が${L.FLOW_SAT}未満のため、人口が流出しています（月 −${(L.outflow(x) * 100).toFixed(1)}％）</p>`;
   // 災害：予報の範囲に入っているか、被害を受けて支援を待っているか
   const fcHere = S.fc && L.disArea(S.fc).includes(c);
   if (fcHere) {
@@ -435,8 +441,9 @@ function renderSheet() {
   const cmds = mine ? (attacked ? ['keep', 'care', 'ind', 'tour', 'dis', 'invite'] : ['ind', 'tour', 'care', 'dis', 'invite']) : ['visit', 'pact', third];
   if (mine && S.lure && L.lureSite(S, ADJ, 0) === c) cmds.unshift('lure');
   if (!mine && L.aidable(S, c) && L.adjacentTo(S, ADJ, c, 0)) cmds.unshift('aid');
-  // 予報が出ていれば、防災対策をいちばん上に出す
+  // 予報が出ていれば防災対策を、独立の動きがあれば子育て支援を、いちばん上に出す
   if (mine && fcHere) { cmds.splice(cmds.indexOf('dis'), 1); cmds.unshift('dis'); }
+  if (mine && x.indep && cmds.includes('care')) { cmds.splice(cmds.indexOf('care'), 1); cmds.unshift('care'); }
   // 首長選挙：関わっていれば演説会。ほかの陣営の市町村は、選挙の時期なら候補を立てられる（協定の代わりに出す）
   if (race && (race.ch === 0 || race.inc === 0)) cmds.unshift('rally');
   else if (!mine && x.owner >= 0 && eLeft < L.ELECT_WINDOW) cmds.splice(cmds.indexOf('pact'), 1, 'run');
@@ -448,13 +455,14 @@ function renderSheet() {
     const e = L.cmdEffect(S, 0, k, sc);
     // 産業力・観光力は陣営の魅力にも効くので、上がり幅を添える
     const ga = (k === 'ind' || k === 'tour') ? Math.min(e, 100 - x[k]) / 2 * x.pop / (L.totalPop(S, 0) || 1) : 0;
-    const note = k === 'dis' ? disNote(x, e, fcHere && mine) : k === 'aid' ? `関係度 +${L.AID_REL}・満足度 +${L.AID_SAT}（${x.hurtKind || '災害'}の被害）`
+    const note = k === 'care' && mine && x.indep ? `独立の動き：満足度 ${Math.round(x.sat)}→${Math.min(100, Math.round(x.sat) + e)}（${L.CALM_SAT}以上で収まる・あと${x.indep.left}か月）`
+      : k === 'dis' ? disNote(x, e, fcHere && mine) : k === 'aid' ? `関係度 +${L.AID_REL}・満足度 +${L.AID_SAT}（${x.hurtKind || '災害'}の被害）`
       : EFF[k] ? `${EFF[k]} +${e}${ga >= 0.05 ? `・陣営の魅力 +${ga.toFixed(1)}` : ''}`
       : k === 'run' ? `当選すれば自陣営に。得票の見込み ${Math.round(L.electExpect(S, 0, c))}％（${L.dateOf(x.elect).label}末に開票）`
       : k === 'rally' ? `得票 +${L.RALLY_STEP}（${race.rally[0]}/${L.RALLY_MAX}回）・いまの見込み ${Math.round(L.electMine(S, c))}％`
       : k === 'lure' ? lureNote()
       : k === 'invite' ? `成功率 ${Math.round(L.inviteChance(S, c) * 100)}％・成功で産業力 +12・人口増${x.inviteLead ? '（前回のつながりで上乗せ）' : ''}` : def.note;
-    const urgent = k === 'dis' && fcHere && mine;
+    const urgent = (k === 'dis' && fcHere && mine) || (k === 'care' && mine && !!x.indep);
     return `<button class="cmd${['talk', 'counter', 'raise', 'keep', 'lure', 'run', 'rally', 'aid'].includes(k) || urgent ? ' primary' : ''}${k === 'lure' || urgent ? ' wide' : ''}" data-cmd="${k}" aria-disabled="${!r.ok}">
       <span class="ttl"><strong>${def.label}</strong><span class="cost num">${cost ? cost + '億・' : ''}行動${def.ap}</span></span><small>${r.ok ? note : r.reason}</small></button>`;
   }).join('');
@@ -481,6 +489,7 @@ function todoList() {
   // 同じ種類は2つまで（予報だけで埋まらないように）
   const out = [], seen = new Set(), own = L.owned(S, 0), per = h => out.filter(t => t.head === h).length;
   const add = (c, cmd, head, text) => { if (out.length < 4 && per(head) < 2 && !seen.has(c + cmd) && L.canDo(S, ADJ, 0, cmd, c, 99, L.SCALABLE.includes(cmd) ? S.budget : undefined).ok) { seen.add(c + cmd); out.push({ c, cmd, head, text }); } };
+  for (const c of own.filter(c => S.m[c].indep)) add(c, 'care', '独立の動き', `${NAMES[c]}（満足度 ${Math.round(S.m[c].sat)}→${L.CALM_SAT}・あと${S.m[c].indep.left}か月）→ 子育て支援`);
   for (const c of fcTowns().filter(c => S.m[c].dis < 80).sort((a, b) => S.m[b].pop - S.m[a].pop)) add(c, 'dis', `${S.fc.kind}の予報`, `${NAMES[c]}（防ぐ確率 ${Math.round(S.m[c].dis)}％）→ 防災対策`);
   for (const c of own) { const t = S.m[c].talk; if (t && !L.inTalk(t, 0)) add(c, 'keep', '狙われている', `${NAMES[c]}（住民投票まであと${t.left}か月）→ 引き留め`); }
   for (const c in S.m) { const r = S.m[c].race; if (r && r.inc === 0) add(c, 'rally', '対立候補', `${NAMES[c]}（得票の見込み ${Math.round(L.electMine(S, c))}％）→ 演説会`); }
@@ -488,7 +497,7 @@ function todoList() {
   if (S.lure) { const site = L.lureSite(S, ADJ, 0), rows = L.lureRows(S, ADJ); if (site && rows[0] && rows[0].f !== 0) add(site, 'lure', '誘致合戦', `${S.lure.name}（いま${rows.findIndex(r => r.f === 0) + 1}位）→ 補助金`); }
   for (const c in S.m) if (L.aidable(S, c)) add(c, 'aid', '災害支援', `${NAMES[c]}（関係度 +${L.AID_REL}）`);
   for (const c in S.m) add(c, 'talk', '合併協議できる', `${NAMES[c]}（関係度 ${Math.round(S.rel[0][c])}）`);
-  for (const c of own.filter(c => S.m[c].sat < 45).sort((a, b) => S.m[a].sat - S.m[b].sat)) add(c, 'care', '満足度が低い', `${NAMES[c]}（${Math.round(S.m[c].sat)}）→ 子育て支援`);
+  for (const c of own.filter(c => S.m[c].sat < 45).sort((a, b) => S.m[a].sat - S.m[b].sat)) add(c, 'care', '満足度が低い', `${NAMES[c]}（${Math.round(S.m[c].sat)}${L.outflow(S.m[c]) ? '・人口流出中' : ''}）→ 子育て支援`);
   for (const c in S.m) add(c, 'run', '首長選挙に候補を立てられる', `${NAMES[c]}（見込み ${Math.round(L.electExpect(S, 0, c))}％）`);
   for (const c in S.m) add(c, 'pact', '連携協定できる', `${NAMES[c]}（関係度 ${Math.round(S.rel[0][c])}）`);
   // 何もなければ、協定に近い隣を1つ
@@ -1153,6 +1162,11 @@ const GUIDE = [
     '災害は予報の圏域の市町村をいくつか襲う。<b>防災力</b>の％の確率で被害を防げる',
     '被害を受けると満足度と財源が下がる。防げば満足度が少し上がる',
     '隣の市町村が被害を受けたら、2か月のあいだ<b>災害支援</b>で関係度を上げられる']],
+  ['満足度が低いと', '人口が減り、独立の動きも起きる', [
+    '満足度が40未満の市町村からは、人口が流れ出す（月0.4〜1％）。税収も少しずつ減る',
+    '30を下回ると<b>独立の動き</b>が起きる。3か月のうちに満足度を50以上に戻せば収まる',
+    '戻せなければ独立を問う住民投票。可決されると、その市町村は独立した市町村に戻る（本拠地では起きない）',
+    '<b>子育て支援</b>で満足度を上げて防ぐ']],
   ['負けになるとき', '財源と満足度に気をつける', [
     '財源のマイナスが3か月続くと負け',
     '満足度が20を下回ると負け']],

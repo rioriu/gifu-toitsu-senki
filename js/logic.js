@@ -64,6 +64,10 @@
   // HIT：圏域の市町村それぞれが襲われる確率。SAT：被害の満足度。SAVE：防いだときの満足度。被害を受けた市町村には、隣の陣営が AID_MONTHS か月のあいだ災害支援できる
   const DISASTERS = { 豪雨: { months: [6, 7, 8, 9], p: 0.45 }, 豪雪: { months: [12, 1, 2], p: 0.5 } };
   const DIS_HIT = 0.4, DIS_SAT = 8, DIS_SAVE = 3, AID_REL = 18, AID_SAT = 5, AID_MONTHS = 2;
+  // 満足度が低い市町村：FLOW 未満で人口が流れ出し（月 0.4〜1％）、INDEP 未満で独立の動きが起きる。
+  // 独立の動きは、INDEP_MONTHS か月のうちに満足度を CALM 以上に戻せば収まり、戻せなければ住民投票。本拠地では起きない
+  const FLOW_SAT = 40, INDEP_SAT = 30, CALM_SAT = 50, INDEP_MONTHS = 3, INDEP_REST = 6;
+  function outflow(x) { return x.sat < FLOW_SAT ? Math.min(0.01, 0.004 + (FLOW_SAT - x.sat) * 0.0002) : 0; }
 
   function hash(s) { let h = 2166136261; for (const ch of s) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
@@ -1114,6 +1118,9 @@
         const weak = own.filter(c => { const rs = rivalSat(c); return rs && !(c === fac.capital && own.length > 3) && (st.m[c].sat < 47 || rs - st.m[c].sat >= 5); })
           .sort((a, b) => (b === fac.capital) - (a === fac.capital) || st.m[a].sat - st.m[b].sat);
         if (weak.length && rnd(st) < AI_GUARD && tryDo('care', weak[0])) continue;
+        // 独立の動きがあれば、満足度を上げて収める
+        const rebel = own.find(c => st.m[c].indep);
+        if (rebel && rnd(st) < 0.8 && tryDo('care', rebel)) continue;
         // 競り合いで負けていれば上乗せ
         for (const c of near) {
           const t = st.m[c].talk;
@@ -1291,6 +1298,7 @@
       x.sat = clamp(x.sat, 0, 100);
       // 人口はゆるやかに減る。満足度と産業力が高いと減り方が小さく、十分高ければ増える
       x.pop = Math.max(0.3, x.pop * (1 + (x.sat - 60 + (x.ind - 50) * 0.2) * 0.00004));
+      if (x.owner >= 0) x.pop = Math.max(0.3, x.pop * (1 - outflow(x)));
       const fi = floorInd(c), ft = floorTour(c);
       if (x.ind > fi) x.ind -= (x.ind - fi) * DECAY;
       if (x.tour > ft) x.tour -= (x.tour - ft) * DECAY;
@@ -1302,6 +1310,8 @@
         else if (st.rel[f][c] > 35) st.rel[f][c] -= 0.5;
       }
     }
+    // 満足度の低い市町村の独立の動き
+    independence(st, names, res);
     // 偉人アドバイザーの入れ替わり
     tickAdvisors(st, names, d, res);
     // 勝敗
@@ -1324,6 +1334,43 @@
     }
     st.ap = apMax(st, 0);
     return res;
+  }
+
+  // 独立の動き：満足度が INDEP_SAT を下回ると始まり、CALM_SAT 以上に戻れば収まる。期限が来たら独立を問う住民投票
+  function independence(st, names, res) {
+    const nm = f => f === 0 ? 'あなたの陣営' : st.factions[f].name;
+    for (const c in st.m) {
+      const x = st.m[c], f = x.owner;
+      if (f < 0 || st.factions[f].capital === c) { delete x.indep; continue; }
+      if (!x.indep) {
+        if (x.sat < INDEP_SAT && !(x.indepRest > st.turn)) {
+          x.indep = { left: INDEP_MONTHS };
+          addLog(st, `${names[c]}で独立を求める声が上がりました。${INDEP_MONTHS}か月のうちに満足度を${CALM_SAT}以上に戻さないと、独立を問う住民投票になります（${nm(f)}）`, f === 0 ? 'bad' : 'info');
+          if (f === 0) { res.news.push(`${names[c]}で独立の動き`); res.steps.push({ kind: 'event', code: c, text: `${names[c]}で独立を求める声`, tone: 'warn' }); }
+        }
+        continue;
+      }
+      if (x.sat >= CALM_SAT) {
+        delete x.indep; x.indepRest = st.turn + INDEP_REST;
+        addLog(st, `${names[c]}の独立の動きは収まりました`, f === 0 ? 'good' : 'info');
+        if (f === 0) res.news.push(`${names[c]}の独立の動きが収まる`);
+        continue;
+      }
+      if (--x.indep.left > 0) continue;
+      // 住民投票：満足度が低いほど賛成が多い
+      const yes = clamp(55 + (INDEP_SAT - x.sat) + (rnd(st) * 10 - 5), 20, 90), pass = yes > 50;
+      delete x.indep; x.indepRest = st.turn + INDEP_REST;
+      if (pass) {
+        x.owner = -1; x.talk = null; x.race = null; x.pact = x.pact.filter(k => k !== f);
+        st.rel[f][c] = Math.min(st.rel[f][c], 30); x.sat = clamp(x.sat + 10, 0, 100);
+        addLog(st, `${names[c]}の住民投票で独立が決まりました（賛成${yes.toFixed(1)}％）。${nm(f)}を離れ、独立した市町村に戻りました`, f === 0 ? 'bad' : 'rival');
+        if (f === 0) res.news.push(`${names[c]}が独立`);
+        res.steps.push({ kind: 'event', code: c, text: `${names[c]}が${nm(f)}から独立（賛成${Math.round(yes)}％）`, tone: f === 0 ? 'bad' : 'warn' });
+      } else {
+        addLog(st, `${names[c]}の独立を問う住民投票は否決されました（賛成${yes.toFixed(1)}％）`, f === 0 ? 'good' : 'info');
+        if (f === 0) res.news.push(`${names[c]}の独立は否決`);
+      }
+    }
   }
 
   // 圏域を制覇したあと、そのまま県内統一を目指して続ける
@@ -1402,7 +1449,7 @@
   }
 
 
-  const api = { DISASTERS, DIS_SAT, AID_REL, AID_SAT, AID_MONTHS, disArea, disLabel, aidable, INVITE_FAIL_IND, INVITE_LEAD, inviteChance, ELECT_TERM, ELECT_WINDOW, RALLY_STEP, RALLY_MAX, ensureElect, electLeft, electExpect, electMine, raceDue, BATTLE_MIN, BATTLE_MAX, battleExpect, battlesDue, setBattle, JOIN_TOWNS, JOIN_RATIO, JOIN_SAT, AI_GUARD, voteExpect, AI_IDLE, FIRMS, LURE_MONTHS, LURE_PT, LURE_MAX, firmInc, sitePoint, lureSite, lureBid, lureScore, lureParts, lureRows, ADVISORS, ADV_BY_ID, ADV_MONTHS, ADV_COOL, ADV_SLOT2, ensureAdv, advCond, advMeasure, advOf, advFx, advBonus, advMax, advUsed, advHolder, canInviteAdv, inviteAdv, advise, advVote, regionLength, talksMax, APPEAL_TALKS, appeal, appealOf, appealRel, appealVote, INFO, REGIONS, MODES, regionCodes, goalOf, continueToUnify, CMDS, dateOf, difficultyOf, newGame, owned, apMax, totalPop, avgSat, incomeOf,
+  const api = { FLOW_SAT, INDEP_SAT, CALM_SAT, INDEP_MONTHS, outflow, DISASTERS, DIS_SAT, AID_REL, AID_SAT, AID_MONTHS, disArea, disLabel, aidable, INVITE_FAIL_IND, INVITE_LEAD, inviteChance, ELECT_TERM, ELECT_WINDOW, RALLY_STEP, RALLY_MAX, ensureElect, electLeft, electExpect, electMine, raceDue, BATTLE_MIN, BATTLE_MAX, battleExpect, battlesDue, setBattle, JOIN_TOWNS, JOIN_RATIO, JOIN_SAT, AI_GUARD, voteExpect, AI_IDLE, FIRMS, LURE_MONTHS, LURE_PT, LURE_MAX, firmInc, sitePoint, lureSite, lureBid, lureScore, lureParts, lureRows, ADVISORS, ADV_BY_ID, ADV_MONTHS, ADV_COOL, ADV_SLOT2, ensureAdv, advCond, advMeasure, advOf, advFx, advBonus, advMax, advUsed, advHolder, canInviteAdv, inviteAdv, advise, advVote, regionLength, talksMax, APPEAL_TALKS, appeal, appealOf, appealRel, appealVote, INFO, REGIONS, MODES, regionCodes, goalOf, continueToUnify, CMDS, dateOf, difficultyOf, newGame, owned, apMax, totalPop, avgSat, incomeOf,
     factionIncome, grantOf, tagInfo, upkeep, cmdCost, cmdEffect, SCALES, SCALABLE, gradeOf, GRADE_PAY, faceOf, SCOUT, canScout, scout, ROLES, ABIL, ensureStaff, staffOf, staffMax, abil, roleVal, hireCandidates, hireCost, canHire, hire, dismiss, assignRole, autoAssign, staffUpkeep, aiStaff, inTalk, BID_MAX, KEEP_MAX, KEEP_STEP, canDo, doCmd, endTurn, adjacentTo, talksOf, seasonX, clamp };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.GameLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);
