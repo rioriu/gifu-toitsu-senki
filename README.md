@@ -16,7 +16,7 @@
 | `js/logic.js` | ゲームロジック（画面に依存しない部分）。`window.GameLogic` に公開し、Node からは `require` できる |
 | `js/map-data.js` | 地図データ（`MAP`：市町村の形・隣接・面積） |
 | `js/battle.js` | 住民投票の決戦（運動員の陣取り）の画面。`window.Battle` に公開 |
-| `js/version.js` | 版の番号（`window.BUILD`）。修正を出すたびに1つ増やす。タイトルとメニューに「ver. N」と出る |
+| `js/version.js` | 版の番号（`window.BUILD`）。修正を出すたびに1つ増やす。タイトルとメニューに各桁を並べた「ver. 0.0.7」の形で出る（10 → 0.1.0） |
 | `js/ui.js` | 画面の処理・描画・セーブ |
 | `docs/spec-v0.1.md` | ゲーム仕様書 v0.1 |
 | `AGENTS.md` | AIエージェント（Codex・Claude Code）向けの作業の決まり。版の番号の上げ方など。`CLAUDE.md` はこれを読み込むだけ |

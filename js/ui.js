@@ -1040,7 +1040,7 @@ function showNews() {
   $('xBtn').onclick = closeOverlay;
 }
 // 版の番号（js/version.js）。反映されたかを一目で見分けるため、タイトルとメニューに出す
-const buildTag = () => `<span class="build num">ver. ${window.BUILD || '?'}</span>`;
+const buildTag = () => `<span class="build num">ver. ${window.VERSION || window.BUILD || '?'}</span>`;
 function showMenu() {
   openOverlay(`<button class="iconbtn close" id="xBtn" aria-label="閉じる">✕</button><h3>メニュー</h3>
     <p class="sub">進み具合はこのブラウザに自動で保存されます。</p>
