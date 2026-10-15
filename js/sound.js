@@ -1,7 +1,7 @@
 // 岐阜統一戦記 効果音
 // 音のファイルは使わず、Web Audio でその場で作る。メニューの「効果音」がオンのときだけ鳴らす（最初はオフ）。
 // iPhone などは、画面に触れるまで音を出せないので、最初に触れたときに音の準備をする。
-// 音は聴き比べページで選んだもの：木琴・オルゴールの「やわらか」を中心に、残り10秒だけ控えめな「落ち着き」。
+// 音は聴き比べページで選んだもの：木琴・オルゴールの「やわらか」を中心に、よい結果と残り10秒は控えめな「落ち着き」。
 // わるい結果・被害・防いだ・決着は、やわらかな音色で個別に作った音。
 // 使い方: Sfx.play('up')  鳴らせる音は SOUNDS を参照。Sfx.set(true) でオン
 (function (root) {
@@ -56,7 +56,8 @@
       bell: (t, f, at, dur, v) => { osc(t, { f: f * 2, at, dur: dur + 0.6, vol: v * 0.3 }); osc(t, { f: f * 6.02, at, dur: 0.25, vol: v * 0.06 }); } },
     // 落ち着き：控えめなチャイム
     calm: { base: 392,
-      note: (t, f, at, dur, v) => { osc(t, { f, at, dur: dur + 0.5, vol: v * 0.3, atk: 0.02 }); osc(t, { f: f * 2, at, dur: dur + 0.2, vol: v * 0.06, atk: 0.02 }); } }
+      note: (t, f, at, dur, v) => { osc(t, { f, at, dur: dur + 0.5, vol: v * 0.3, atk: 0.02 }); osc(t, { f: f * 2, at, dur: dur + 0.2, vol: v * 0.06, atk: 0.02 }); },
+      bell: (t, f, at, dur, v) => { osc(t, { f, at, dur: dur + 1, vol: v * 0.28, atk: 0.01 }); osc(t, { f: f * 2, at, dur: dur + 0.4, vol: v * 0.08, atk: 0.01 }); } }
   };
   // 場面ごとの鳴り方の型。v.n(deg, 始まり, 長さ, 大きさ, 短調か) / v.bell(deg, …) / v.hit(始まり, 大きさ) / v.low(…) / v.swish(始まり, 長さ, 大きさ)
   const PATTERNS = {
@@ -102,8 +103,8 @@
     // 小さなファンファーレ：木琴が転がって、和音でのばす
     gong: t => { [N.C5, N.E5, N.G5].forEach((f, i) => mar(t, f, i * 0.08, 0.15, 0.5)); [N.C5, N.E5, N.G5, N.C6].forEach(f => pad(t, f, 0.32, 1.2, 0.45)); }
   };
-  // どの音をどの楽器で鳴らすか（残り10秒だけ落ち着き、ほかはやわらか）
-  const FAM_OF = { tick: 'calm' };
+  // どの音をどの楽器で鳴らすか（よい結果と残り10秒は落ち着き、ほかはやわらか）
+  const FAM_OF = { pass: 'calm', tick: 'calm' };
   const SOUNDS = {};
   for (const k in PATTERNS) SOUNDS[k] = t => PATTERNS[k](voice(FAM_OF[k] || 'soft', t));
   Object.assign(SOUNDS, OWN);
