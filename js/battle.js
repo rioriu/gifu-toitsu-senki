@@ -27,6 +27,9 @@
   const rand = () => Math.random();
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const $ = id => el.querySelector('#' + id);
+  // 効果音（js/sound.js）。メニューでオンにしたときだけ鳴る
+  const sfx = n => { if (root.Sfx) root.Sfx.play(n); };
+  let lastTick = -1;
 
   // ---------- 言葉 ----------
   // 住民投票と首長選挙で変わる言葉。首長選挙は、あなたの陣営が候補を立てた側（opts.defend なしで）か、現職で守る側（opts.defend）
@@ -134,7 +137,7 @@
 
   // ---------- 開く・閉じる ----------
   function start(o, onDone) {
-    opts = o; done = onDone; words = wordsOf(o);
+    opts = o; done = onDone; words = wordsOf(o); lastTick = -1;
     TUNE.boost = clamp(BAL.boostBase + (50 - o.expect) * BAL.boostSlope, 0.8, 2);
     let seen = false; try { seen = localStorage.getItem(TUT_KEY) === '1'; } catch (e) { /* 覚えられなくても遊べる */ }
     o.tutorial = !seen;
@@ -257,6 +260,7 @@
     const prev = n.owner;
     n.owner = side; n.count = rest; n.shieldUntil = 0;
     st.flash[n.id] = 1;
+    sfx(side === 'me' ? 'capture' : 'lost');
     burst(n.px, n.py, side === 'me' ? C.me : C['b-opp'], 26, 3.2);
     st.shake = reduce() ? 0 : 7;
     st.floats.push({ x: n.px, y: n.py - n.r - 8, text: side === 'me' ? '制圧！' : '奪われた', color: side === 'me' ? C.me : C['b-opp'], life: 1.4, big: true });
@@ -527,6 +531,7 @@
     if (key === lastHud) return; lastHud = key;
     $('btTimer').textContent = left;
     $('btTimer').classList.toggle('hurry', left <= 10 && st.running);
+    if (st.running && !st.paused && left <= 10 && left > 0 && left !== lastTick) { lastTick = left; sfx('tick'); }
     $('btPct').textContent = t.toFixed(1) + '％';
     $('btPct').style.color = t > 50 ? 'var(--me)' : 'var(--ink)';
     $('btYes').style.width = clamp(t, 0, 100) + '%';
@@ -596,7 +601,7 @@
     $('btSheet').addEventListener('click', e => {
       const b = e.target.closest('button'); if (!b) return;
       const c = b.dataset.cmd;
-      if (c === 'begin') { closeSheet(); st.running = true; banner('決戦開始'); if (st.tut) hint('まずは1手。時間は止まっています'); return; }
+      if (c === 'begin') { closeSheet(); st.running = true; banner('決戦開始'); sfx('drum'); if (st.tut) hint('まずは1手。時間は止まっています'); return; }
       if (c === 'resume') { closeSheet(); return; }
       if (c === 'auto') { close(null); return; }
       if (c === 'skip') { st.skipCount = true; return; }
@@ -606,12 +611,14 @@
   }
   function playerSend(A, n) {
     if (!send(A, n, 'me')) return;
+    sfx('send');
     hint(n.owner === 'me' ? `${n.name}へ援軍` : `${n.name}へ向かった`);
     if (st.tut && st.tut.stage === 'drag') { st.tut.stage = 'play'; last = performance.now(); }
   }
   function useSkill(id, n) {
     const s = st.skills.find(q => q.id === id);
     st.armed = null; st.usedSkill = true;
+    sfx(s.kind === 'freeze' ? 'drum' : 'skill');
     const fl = text => st.floats.push({ x: n.px, y: n.py - n.r - 6, text, color: s.color, life: 1.3 });
     if (s.kind === 'persuade') { push(n, s.amt); burst(n.px, n.py, s.color, 16, 2); fl(`説得 −${s.amt}`); }
     if (s.kind === 'rally') { n.count += s.amt; burst(n.px, n.py, s.color, 16, 2); fl(`応援演説 +${s.amt}`); }
@@ -641,6 +648,7 @@
       <p class="bt-open-go">運動員を地区へ走らせ、90秒で票を固める</p>
       <p class="bt-open-tap">タップで進む</p>`;
     el.appendChild(box);
+    setTimeout(() => sfx('drum'), reduce() ? 0 : 450);
     const me = st;
     let gone = false;
     const go = () => {
@@ -692,6 +700,7 @@
   function finish(why) {
     if (st.over) return;
     st.over = true; st.running = false;
+    sfx('gong');
     banner(why === 'sweep' ? '完勝' : why === 'wiped' ? '総崩れ' : '投票日');
     const me = st;
     setTimeout(() => { if (st === me) countVotes(why); }, reduce() ? 200 : 1300);
@@ -718,6 +727,8 @@
         return `<div class="bt-crow ${open ? 'open' : ''}"><span>${r.n.name}</span>${own}<span class="mini"><i style="width:${open ? p : 0}%"></i></span><span class="num" style="text-align:right">${open ? p.toFixed(1) + '％' : '…'}</span></div>`;
       }).join('');
       const fin = k >= rows.length, pass = Y > N, tp = Y + N ? Y / (Y + N) * 100 : 0;
+      if (!fin && k > 0) sfx('tick');
+      if (fin && !me.verdictSfx) { me.verdictSfx = true; sfx('stamp'); setTimeout(() => sfx(pass ? 'pass' : 'fail'), 140); }
       openSheet(`<div class="eyebrow">開票</div><h2>${words.count}</h2>
         <div class="bt-count">${list}</div>
         <div class="bt-total"><span>${words.yes} <b class="num">${Y.toLocaleString()}</b></span><span>${words.no} <b class="num">${N.toLocaleString()}</b></span></div>

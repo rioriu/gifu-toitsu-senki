@@ -20,6 +20,10 @@ const kanaOn = () => prefs.kana !== false;
 // 市町村名を、ふりがな付きの HTML にする（ふりがなを外していれば名前だけ）
 const rb = c => kanaOn() && KANA[c] ? `<ruby>${NAMES[c]}<rt>${KANA[c]}</rt></ruby>` : NAMES[c];
 let S = null, sel = null, seenLog = 0;
+// 効果音（js/sound.js）。読み込めていなくても動くように
+const sfx = n => { if (window.Sfx) Sfx.play(n); };
+// 判のアニメーション（.stamp は0.35秒後に押される）に合わせて、判の音と結果の音を鳴らす
+const stampSfx = (good, delay) => setTimeout(() => { sfx('stamp'); setTimeout(() => sfx(good ? 'pass' : 'fail'), 140); }, matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : (delay || 350));
 const $ = id => document.getElementById(id);
 const svg = $('map');
 
@@ -555,6 +559,7 @@ function showLure(s, onOk) {
       <div class="lure">${lureList(s.rows, s.f)}</div>
       <p style="margin:14px 0 0;font-weight:700;color:${won ? 'var(--good)' : 'var(--bad)'}">${won ? `${NAMES[s.code]}に${s.name}が立地します。${firmGain(s)}` : `${facName(s.f)}の${NAMES[s.code]}に決まりました。${mine && mine.paid ? `補助金${mine.paid}億円は戻りました。` : ''}`}</p>`;
   }
+  if (start) sfx('warn'); else stampSfx(s.f === 0, 0);
   openOverlay(`${art('img/event/firm.webp', 'art-top art-band')}<h3>${start ? '誘致合戦' : '誘致合戦 決着'}</h3>${body}
     <div class="row">${start && mine ? `<button class="btn main" id="lureGo">候補地を見る</button>` : ''}<button class="btn${start && mine ? '' : ' main'}" id="okBtn">次へ</button></div>`);
   $('okBtn').onclick = go;
@@ -581,7 +586,7 @@ function ensureVisible(c) {
 function render() { renderStatus(); paintMap(); renderSheet(); }
 
 // 地図をタップするたびに詳細はたたむ。海や県の外をタップしたら選択も外す
-function select(c) { sel = c && sel !== c ? c : null; detailOpen = false; paintMap(); renderSheet(); if (sel) requestAnimationFrame(() => ensureVisible(sel)); }
+function select(c) { sel = c && sel !== c ? c : null; detailOpen = false; if (sel) sfx('tap'); paintMap(); renderSheet(); if (sel) requestAnimationFrame(() => ensureVisible(sel)); }
 
 let toastTimer = null;
 function toast(msg) {
@@ -597,13 +602,13 @@ function runCmd(k) {
   if (!S || S.over) return;
   const sc = L.SCALABLE.includes(k) ? S.budget : undefined;
   const r = L.canDo(S, ADJ, 0, k, sel, S.ap, sc);
-  if (!r.ok) { toast(r.reason); return; }
+  if (!r.ok) { toast(r.reason); sfx('nope'); return; }
   const c = sel, before = { ...statsOf(c), pop: S.m[c].pop }, chance = k === 'invite' ? L.inviteChance(S, c) : 0;
   const text = L.doCmd(S, NAMES, 0, k, c, sc);
   S.ap -= L.CMDS[k].ap;
   S.log.push({ t: S.turn, text, kind: 'good' }); seenLog = S.log.length;
   if (k === 'invite') { render(); save(); showInvite(c, before, chance); return; }
-  toast(text); render(); save();
+  sfx('up'); toast(text); render(); save();
   showGain(c, before);
 }
 // 企業誘致：すぐに結果を出さず、打診している間を見せてから判を押す。不調でも残るものを伝える
@@ -621,6 +626,7 @@ function showInvite(c, before, chance) {
       <div class="stamp ${ok ? 'pass' : ''}">${ok ? '成功' : '不調'}</div>
     </div>
     <div class="row"><button class="btn main" id="okBtn">次へ</button></div>`);
+  stampSfx(ok, 1600);
   $('okBtn').onclick = () => { closeOverlay(); showGain(c, before); };
 }
 
@@ -665,8 +671,14 @@ function battleOpts(c) {
     ...(race ? { kind: 'elect', defend, rival: S.factions[other].name } : {})
   };
 }
+// 相手の動きを地図で見せないときは、災害の音だけ鳴らす
+function monthSfx(res) {
+  if (res.news.some(t => /の被害$/.test(t))) sfx('hurt');
+  else if (res.news.some(t => /恐れ$/.test(t))) sfx('warn');
+  else if (res.news.some(t => /被害を防いだ/.test(t))) sfx('saved');
+}
 function finishMonth() {
-  detailOpen = false;
+  detailOpen = false; sfx('month');
   const before = {}; for (const c in S.m) before[c] = S.m[c].owner;
   const res = L.endTurn(S, ADJ, NAMES);
   const d = L.dateOf(S.turn);
@@ -685,6 +697,7 @@ function afterMonth(res, before, summary) {
   } else {
     render(); toast(summary);
     // 決戦で決めた住民投票は、決戦の開票で見せたので出さない
+    monthSfx(res);
     queue = [...res.votes.filter(v => !v.battle).map(v => () => showVote(v, next)), ...res.elects.filter(v => !v.battle).map(v => () => showElect(v, next)), ...res.lures.map(s => () => showLure(s, next)), ...res.joins.map(s => () => showJoin(s, next))];
     if (S.over) queue.push(() => showOver());
     next();
@@ -694,6 +707,8 @@ function afterMonth(res, before, summary) {
 // ---------- 相手の動きを地図で見せる ----------
 let replay = null, replayTimer = null;
 const prefs = (() => { try { return JSON.parse(localStorage.getItem(SAVE_KEY + '-prefs')) || { replay: true }; } catch (e) { return { replay: true }; } })();
+// 効果音は、メニューでオンにしたときだけ（最初はオフ）
+if (window.Sfx) Sfx.set(prefs.sound === true);
 function savePrefs() { try { localStorage.setItem(SAVE_KEY + '-prefs', JSON.stringify(prefs)); } catch (e) {} }
 function mergeSteps(steps) {
   const out = [];
@@ -747,6 +762,7 @@ function playStep() {
   $('rpWho').textContent = cap.who; $('rpWhat').textContent = cap.what;
   $('rpCount').textContent = `${replay.i + 1}/${replay.steps.length}`;
   replay.focus = s.code;
+  sfx(s.kind !== 'event' ? 'tick' : s.tone === 'warn' ? 'warn' : s.tone === 'bad' ? 'hurt' : 'saved');
   // 対象の市町村と、動いた陣営の隣り合う領地が入るように寄る
   const ctx = [s.code, ...ADJ[s.code].filter(c => s.f !== undefined && replay.owners[c] === s.f)].slice(0, 4);
   const b = bboxOf(ctx); const r = rect();
@@ -850,6 +866,7 @@ function showVote(v, onOk) {
     </div>
     <p style="margin:14px 0 0;font-weight:700;color:${good ? 'var(--good)' : 'var(--bad)'}">${lead}</p>
     <div class="row"><button class="btn main" id="okBtn">次へ</button></div>`);
+  stampSfx(good);
   $('okBtn').onclick = onOk || next;
 }
 // 小さくなったライバルが、あなたの陣営に合流してきたとき
@@ -879,12 +896,14 @@ function showElect(v, onOk) {
     </div>
     <p style="margin:14px 0 0;font-weight:700;color:${won ? 'var(--good)' : 'var(--bad)'}">${lead}</p>
     <div class="row"><button class="btn main" id="okBtn">次へ</button></div>`);
+  stampSfx(won);
   $('okBtn').onclick = onOk || next;
 }
 function showOver() {
   const o = S.over, n = L.owned(S, 0).length;
   const title = !o.win ? '任期終了' : (o.region ? '圏域制覇' : '県内統一');
   const goOn = o.win && !!o.region;
+  sfx(o.win ? 'pass' : 'fail');
   openOverlay(`${art(`img/end/${!o.win ? 'term' : o.region ? 'region' : 'unify'}.webp`, 'art-top art-end')}<h3>${title}</h3><p class="sub">${L.dateOf(S.turn).label}</p>
     <p style="font-size:15px">${o.text}</p><p class="sub">最終的な支配：${n}/42市町村、人口${L.totalPop(S, 0).toFixed(1)}千人</p>
     ${goOn ? '<p class="sub">このまま続けて、県内42市町村の統一を目指すこともできます。</p>' : ''}
@@ -1044,6 +1063,7 @@ const buildTag = () => `<span class="build num">ver. ${window.VERSION || window.
 function showMenu() {
   openOverlay(`<button class="iconbtn close" id="xBtn" aria-label="閉じる">✕</button><h3>メニュー</h3>
     <p class="sub">進み具合はこのブラウザに自動で保存されます。</p>
+    <label class="toggle"><input type="checkbox" id="sfToggle" ${prefs.sound === true ? 'checked' : ''}>効果音を鳴らす</label>
     <label class="toggle"><input type="checkbox" id="knToggle" ${kanaOn() ? 'checked' : ''}>市町村名にふりがなを付ける</label>
     <label class="toggle"><input type="checkbox" id="rpToggle" ${prefs.replay ? 'checked' : ''}>月を終えたあと、相手の動きを地図で見せる</label>
     <label class="toggle"><input type="checkbox" id="ssToggle" ${prefs.season !== false ? 'checked' : ''}>季節の行事（高山祭・鵜飼など）を、月を終えたときに知らせる</label>
@@ -1055,6 +1075,7 @@ function showMenu() {
   $('xBtn').onclick = closeOverlay;
   $('guideBtn').onclick = showGuide;
   if ($('overBtn')) $('overBtn').onclick = showOver;
+  $('sfToggle').onchange = e => { prefs.sound = e.target.checked; savePrefs(); if (window.Sfx) { Sfx.set(prefs.sound); sfx('up'); } };
   $('knToggle').onchange = e => { prefs.kana = e.target.checked; savePrefs(); updateLabels(); renderSheet(); };
   $('rpToggle').onchange = e => { prefs.replay = e.target.checked; savePrefs(); };
   $('btToggle').onchange = e => { prefs.battle = e.target.checked; savePrefs(); };

@@ -15,6 +15,7 @@
 | `css/style.css` | スタイル |
 | `js/logic.js` | ゲームロジック（画面に依存しない部分）。`window.GameLogic` に公開し、Node からは `require` できる |
 | `js/map-data.js` | 地図データ（`MAP`：市町村の形・隣接・面積） |
+| `js/sound.js` | 効果音。音のファイルは使わず Web Audio でその場で作る。`window.Sfx` に公開。メニューでオンにしたときだけ鳴る（最初はオフ） |
 | `js/battle.js` | 住民投票の決戦（運動員の陣取り）の画面。`window.Battle` に公開 |
 | `js/version.js` | 版の番号（`window.BUILD`）。修正を出すたびに1つ増やす。タイトルとメニューに各桁を並べた「ver. 0.0.7」の形で出る（10 → 0.1.0） |
 | `js/ui.js` | 画面の処理・描画・セーブ |
@@ -24,7 +25,7 @@
 | `img/` | イラスト（`docs/images.md` のとおりに置く）。ないファイルは画面に出さない |
 | `tools/balance.js` | バランス確認。人に近い考え方のボットに何度も遊ばせ、スタート地点ごとの勝率を測る（`node tools/balance.js 100 21507`） |
 
-JS は `logic.js` → `map-data.js` → `battle.js` → `icons.js` → `version.js` → `ui.js` の順に通常の `<script>` で読み込む（`file://` で開けるよう ES Modules や `fetch` は使わない）。
+JS は `logic.js` → `map-data.js` → `sound.js` → `battle.js` → `icons.js` → `version.js` → `ui.js` の順に通常の `<script>` で読み込む（`file://` で開けるよう ES Modules や `fetch` は使わない）。
 
 ビルド不要。ローカルでは `index.html` をブラウザで開けば遊べる。
 セーブはブラウザの localStorage（キー `gifu-toitsu-v1`）に保存される。
