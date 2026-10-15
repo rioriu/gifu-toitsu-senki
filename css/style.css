@@ -399,6 +399,10 @@ select { font: inherit; padding: 10px; border-radius: 10px; border: 1px solid va
 .adv > .pic.ok { position: absolute; left: 12px; top: 10px; width: 56px; height: 56px; border-radius: 50%; border: 2px solid var(--line); }
 .advmore summary { cursor: pointer; font-size: 13px; color: var(--ink-2); padding: 12px 0; }
 .tag.adv-tag { border-color: var(--warn); color: var(--warn); }
+/* 人材のカードの「解雇する」と、その確認 */
+.person .fire { grid-column: 1 / -1; justify-self: end; font-size: 12px; }
+.person .fire .linkbtn { color: var(--ink-2); font-weight: 400; }
+.person .fire:has(.why) { justify-self: stretch; }
 .linkbtn { border: 0; background: none; padding: 0 2px; color: var(--me); font-weight: 700; text-decoration: underline; cursor: pointer; font-size: inherit; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 @media (min-width: 560px) { .cmds { grid-template-columns: repeat(3, minmax(0, 1fr)); } }

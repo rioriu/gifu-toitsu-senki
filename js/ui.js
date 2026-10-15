@@ -593,7 +593,7 @@ $('sfxOn').onclick = () => { prefs.sound = true; savePrefs(); if (window.Sfx) { 
 $('sfxX').onclick = () => { prefs.soundHint = false; savePrefs(); sfxHint(); toast('効果音はメニューからオンにできます'); };
 
 // 地図をタップするたびに詳細はたたむ。海や県の外をタップしたら選択も外す
-function select(c) { sel = c && sel !== c ? c : null; detailOpen = false; if (sel) sfx('tap'); paintMap(); renderSheet(); if (sel) requestAnimationFrame(() => ensureVisible(sel)); }
+function select(c) { sel = c && sel !== c ? c : null; detailOpen = false; if (sel) sfx('tap'); paintMap(); renderSheet(); if (sel) { const c = sel; requestAnimationFrame(() => { if (sel === c) ensureVisible(c); }); } }
 
 let toastTimer = null;
 function toast(msg) {
@@ -993,7 +993,8 @@ function showStaff(focus) {
   }).join('');
   const opts = p => `<option value="">役職なし</option>` + Object.entries(L.ROLES).map(([r, def]) => `<option value="${r}" ${p.role === r ? 'selected' : ''}>${def.label}（${L.ABIL[def.key]} ${L.abil(S, 0, p, def.key)}）</option>`).join('');
   const people = mine.map(p => `<div class="person">${facePic(p)}<div class="top">${gradeTag(p)}<b>${p.name}</b><small>${p.ext ? (p.pref || '県外') + 'から招へい' : NAMES[p.home] + '出身'}・役職の給与 月${L.GRADE_PAY[L.gradeOf(p)]}億円</small></div>${abilHtml(p)}
-    <select data-role="${p.id}" aria-label="${p.name}の役職">${opts(p)}</select></div>`).join('') || '<p class="empty">まだ人材がいません。</p>';
+    <select data-role="${p.id}" aria-label="${p.name}の役職">${opts(p)}</select>
+    <div class="fire" id="fire-${p.id}"><button class="linkbtn" type="button" data-fire="${p.id}">解雇する</button></div></div>`).join('') || '<p class="empty">まだ人材がいません。</p>';
   const cands = L.hireCandidates(S, ADJ, 0).sort((a, b) => (b.pol + b.neg + b.plan + b.pop) - (a.pol + a.neg + a.plan + a.pop));
   const hires = cands.slice(0, 8).map(p => {
     const r = L.canHire(S, ADJ, 0, p.id, S.ap);
@@ -1029,6 +1030,18 @@ function showStaff(focus) {
     const text = `${p.pref}から${g}ランクの${p.name}を招へい${fillEmpty(p)}`;
     S.log.push({ t: S.turn, text, kind: 'good' }); seenLog = S.log.length;
     toast(text); save(); render(); showStaff();
+  };
+  // 解雇は、カードの中で確かめてから
+  for (const b of document.querySelectorAll('[data-fire]')) b.onclick = () => {
+    const id = Number(b.dataset.fire), p = S.staff.find(q => q.id === id), box = $('fire-' + id);
+    box.innerHTML = `<p class="why">${p.name}を解雇しますか？ ${p.ext ? `${p.pref || '県外'}へ帰り、戻ってきません。` : `地元の${NAMES[p.home]}に戻ります。あとで登用し直せますが、ほかの陣営に登用されることもあります。`}${p.role ? '役職は空席になります。' : ''}</p>
+      <div class="row" style="margin-top:6px"><button class="btn danger" type="button" id="fireYes">解雇する</button><button class="btn" type="button" id="fireNo">やめる</button></div>`;
+    $('fireNo').onclick = () => showStaff();
+    $('fireYes').onclick = () => {
+      const text = L.dismiss(S, NAMES, 0, id);
+      S.log.push({ t: S.turn, text, kind: 'info' }); seenLog = S.log.length;
+      sfx('nope'); toast(text); save(); render(); showStaff();
+    };
   };
   for (const b of document.querySelectorAll('[data-hire]')) b.onclick = () => {
     const id = Number(b.dataset.hire), r = L.canHire(S, ADJ, 0, id, S.ap);

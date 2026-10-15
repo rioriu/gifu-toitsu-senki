@@ -317,7 +317,7 @@
     S: { cost: 180, lo: 75, hi: 92, best: [97, 100] }
   };
   function canScout(st, f, grade, apLeft) {
-    if (staffOf(st, f).length >= staffMax(st, f)) return { ok: false, reason: `人材は${staffMax(st, f)}人までです` };
+    if (staffOf(st, f).length >= staffMax(st, f)) return { ok: false, reason: `人材は${staffMax(st, f)}人までです（解雇すると枠が空きます）` };
     if (apLeft < 1) return { ok: false, reason: '今月の行動力が足りません（1必要）' };
     if (st.factions[f].money < SCOUT[grade].cost) return { ok: false, reason: `財源が足りません（${SCOUT[grade].cost}億円必要）` };
     return { ok: true, cost: SCOUT[grade].cost };
@@ -353,7 +353,7 @@
     const p = st.staff.find(q => q.id === id);
     if (!p || p.f !== -1) return { ok: false, reason: 'この人材は登用できません' };
     if (!hireCandidates(st, adj, f).includes(p)) return { ok: false, reason: '自陣営か、隣り合う独立市町村の人材だけ登用できます' };
-    if (staffOf(st, f).length >= staffMax(st, f)) return { ok: false, reason: `人材は${staffMax(st, f)}人までです（市町村が増えると増えます）` };
+    if (staffOf(st, f).length >= staffMax(st, f)) return { ok: false, reason: `人材は${staffMax(st, f)}人までです（市町村が増えると増えます。解雇すると枠が空きます）` };
     if (apLeft < 1) return { ok: false, reason: '今月の行動力が足りません（1必要）' };
     if (st.factions[f].money < hireCost(p)) return { ok: false, reason: `財源が足りません（${hireCost(p)}億円必要）` };
     return { ok: true, cost: hireCost(p) };
@@ -362,6 +362,15 @@
     const p = st.staff.find(q => q.id === id);
     st.factions[f].money -= hireCost(p); p.f = f; p.role = null;
     return `${names[p.home]}出身の${p.name}を登用`;
+  }
+  // 解雇：地元出身の人は独立の人材として地元に戻り（あとで登用し直せる）、県外から招へいした人は県外へ帰って戻らない
+  function dismiss(st, names, f, id) {
+    const p = st.staff.find(q => q.id === id && q.f === f);
+    if (!p) return '';
+    p.role = null;
+    if (p.ext) { p.f = -2; return `${p.name}を解雇しました（${p.pref || '県外'}へ帰りました）`; }
+    p.f = -1;
+    return `${p.name}を解雇しました（地元の${names[p.home]}に戻りました）`;
   }
   function assignRole(st, f, id, role) {
     for (const q of st.staff) if (q.f === f && q.role === role && role) q.role = null;
@@ -1394,6 +1403,6 @@
 
 
   const api = { DISASTERS, DIS_SAT, AID_REL, AID_SAT, AID_MONTHS, disArea, disLabel, aidable, INVITE_FAIL_IND, INVITE_LEAD, inviteChance, ELECT_TERM, ELECT_WINDOW, RALLY_STEP, RALLY_MAX, ensureElect, electLeft, electExpect, electMine, raceDue, BATTLE_MIN, BATTLE_MAX, battleExpect, battlesDue, setBattle, JOIN_TOWNS, JOIN_RATIO, JOIN_SAT, AI_GUARD, voteExpect, AI_IDLE, FIRMS, LURE_MONTHS, LURE_PT, LURE_MAX, firmInc, sitePoint, lureSite, lureBid, lureScore, lureParts, lureRows, ADVISORS, ADV_BY_ID, ADV_MONTHS, ADV_COOL, ADV_SLOT2, ensureAdv, advCond, advMeasure, advOf, advFx, advBonus, advMax, advUsed, advHolder, canInviteAdv, inviteAdv, advise, advVote, regionLength, talksMax, APPEAL_TALKS, appeal, appealOf, appealRel, appealVote, INFO, REGIONS, MODES, regionCodes, goalOf, continueToUnify, CMDS, dateOf, difficultyOf, newGame, owned, apMax, totalPop, avgSat, incomeOf,
-    factionIncome, grantOf, tagInfo, upkeep, cmdCost, cmdEffect, SCALES, SCALABLE, gradeOf, GRADE_PAY, faceOf, SCOUT, canScout, scout, ROLES, ABIL, ensureStaff, staffOf, staffMax, abil, roleVal, hireCandidates, hireCost, canHire, hire, assignRole, autoAssign, staffUpkeep, aiStaff, inTalk, BID_MAX, KEEP_MAX, KEEP_STEP, canDo, doCmd, endTurn, adjacentTo, talksOf, seasonX, clamp };
+    factionIncome, grantOf, tagInfo, upkeep, cmdCost, cmdEffect, SCALES, SCALABLE, gradeOf, GRADE_PAY, faceOf, SCOUT, canScout, scout, ROLES, ABIL, ensureStaff, staffOf, staffMax, abil, roleVal, hireCandidates, hireCost, canHire, hire, dismiss, assignRole, autoAssign, staffUpkeep, aiStaff, inTalk, BID_MAX, KEEP_MAX, KEEP_STEP, canDo, doCmd, endTurn, adjacentTo, talksOf, seasonX, clamp };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.GameLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);
