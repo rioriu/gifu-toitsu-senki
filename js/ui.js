@@ -27,8 +27,34 @@ const stampSfx = (good, delay) => setTimeout(() => { sfx('stamp'); setTimeout(()
 const $ = id => document.getElementById(id);
 const svg = $('map');
 
-function save() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) {} }
-function loadSaved() { try { const t = localStorage.getItem(SAVE_KEY); return t ? JSON.parse(t) : null; } catch (e) { return null; } }
+// 保存できなかったら知らせる（容量不足や、保存を止める設定のとき）。前の保存は壊さない。知らせは失敗が続くあいだ1回だけ
+let saveWarned = false;
+function save() {
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); saveWarned = false; return true; }
+  catch (e) {
+    if (!saveWarned) { saveWarned = true; toast('このブラウザに保存できていません。空き容量やプライベートブラウズの設定を確かめてください。閉じると、ここまでの進み具合は失われます', 7000); }
+    return false;
+  }
+}
+// 読み込んだセーブが遊べる形かを確かめる（陣営・42市町村・関係度・年月がそろっているか）
+function validSave(s) {
+  if (!s || typeof s !== 'object' || typeof s.turn !== 'number' || !Array.isArray(s.factions) || !s.factions.length || !s.m || !Array.isArray(s.rel)) return false;
+  if (!s.factions.every(f => f && NAMES[f.capital] && typeof f.money === 'number')) return false;
+  return Object.keys(NAMES).every(c => { const x = s.m[c]; return x && typeof x.owner === 'number' && typeof x.pop === 'number' && typeof x.sat === 'number'; });
+}
+// 読めないセーブは消さずに控え（キー末尾 -broken）を残し、タイトルで知らせる。新しく始めると上書きされる
+let brokenSave = false;
+function loadSaved() {
+  let t = null;
+  try { t = localStorage.getItem(SAVE_KEY); } catch (e) { return null; }
+  if (!t) return null;
+  let s = null;
+  try { s = JSON.parse(t); } catch (e) { /* 壊れている */ }
+  if (validSave(s)) return s;
+  brokenSave = true;
+  try { if (!localStorage.getItem(SAVE_KEY + '-broken')) localStorage.setItem(SAVE_KEY + '-broken', t); } catch (e) { /* 控えも残せない */ }
+  return null;
+}
 function clearSave() { try { localStorage.removeItem(SAVE_KEY); } catch (e) {} }
 
 const colorVar = f => `var(--${S.factions[f].color})`;
@@ -383,9 +409,10 @@ function renderSheet() {
     sheetFrame(`${TI.icon(me.capital)}<h2>${rb(me.capital)}陣営</h2><span class="tag">${L.owned(S, 0).length}市町村</span>${goalTag()}${fcTag}${lureTag}${advTag}`,
       first ? '<b>隣の市町村をタップ</b>して、交流事業で関係度を上げましょう' : '',
       todoHtml(),
-      `<p class="facts num">人口 ${L.totalPop(S, 0).toFixed(1)}千人 · 平均満足度 ${Math.round(L.avgSat(S, 0))} · 収入 ${L.factionIncome(S, 0, L.dateOf(S.turn).month)}億円/月 · 維持費 ${L.upkeep(S, 0)}億円 · 魅力 ${Math.round(L.appeal(S, 0))} · 協議 同時${L.talksMax(S, 0)}件まで</p>` + fcNote + lureHtml() + electNote + tips + advNote);
+      townsHtml() + `<p class="facts num">人口 ${L.totalPop(S, 0).toFixed(1)}千人 · 平均満足度 ${Math.round(L.avgSat(S, 0))} · 収入 ${L.factionIncome(S, 0, L.dateOf(S.turn).month)}億円/月 · 維持費 ${L.upkeep(S, 0)}億円 · 魅力 ${Math.round(L.appeal(S, 0))} · 協議 同時${L.talksMax(S, 0)}件まで</p>` + fcNote + lureHtml() + electNote + tips + advNote);
     for (const b of sh.querySelectorAll('[data-open-staff]')) b.onclick = () => showStaff('adv');
     for (const b of sh.querySelectorAll('[data-todo]')) b.onclick = () => goTodo(b.dataset.todo, b.dataset.cmd);
+    for (const b of sh.querySelectorAll('[data-go]')) b.onclick = () => { sel = null; select(b.dataset.go); };
     bindLure(sh);
     return;
   }
@@ -393,7 +420,7 @@ function renderSheet() {
   const mine = x.owner === 0;
   const ownerTag = x.owner >= 0 ? `<span class="tag owner" style="background:${colorVar(x.owner)}">${ownerName(c)}${S.factions[x.owner].capital === c ? '・本拠地' : ''}</span>` : `<span class="tag">独立</span>`;
   let notes = '', alert = '';
-  if (info[2]) notes += `<p class="note">特産：${info[2]}${L.seasonX(c, month) > 1 ? '（いまが見ごろ）' : ''}</p>`;
+  if (info[2]) notes += `<p class="note">特産：${info[2]}${L.seasonTags(c).length > 1 ? `（季節の観光：${L.seasonTags(c).slice(1).join('・')}）` : ''}${L.seasonX(c, month) > 1 ? '・いまが見ごろ' : ''}</p>`;
   const fname = k => k === 0 ? 'あなたの陣営' : S.factions[k].name;
   if (x.talk && x.talk.rival !== undefined) {
     const t = x.talk;
@@ -517,6 +544,14 @@ function todoHtml() {
   const ap = S.ap > 0 ? '' : '<p class="note">今月の行動力は使い切りました。「月を終える」で次の月へ</p>';
   return `<div class="todo"><div class="h5">いまやるといいこと</div>${list.map(t => `<button data-todo="${t.c}" data-cmd="${t.cmd}"><b>${t.head}</b> <span>${t.text}</span></button>`).join('')}${ap}</div>`;
 }
+// 自陣営と隣の市町村の一覧。地図では押しにくい小さな町（北方町・岐南町など）もここから選べる
+function townsHtml() {
+  const own = L.owned(S, 0).sort((a, b) => S.m[b].pop - S.m[a].pop);
+  const near = Object.keys(S.m).filter(c => S.m[c].owner !== 0 && L.adjacentTo(S, ADJ, c, 0)).sort((a, b) => S.rel[0][b] - S.rel[0][a]);
+  const btn = (c, sub) => { const o = S.m[c].owner; return `<button type="button" data-go="${c}"><i style="background:${o >= 0 ? colorVar(o) : 'var(--line)'}"></i>${NAMES[c]}${sub ? `<small>${sub}</small>` : ''}</button>`; };
+  return `<div class="h5" style="margin-top:6px">自陣営の市町村</div><div class="towns">${own.map(c => btn(c, `満足度 ${Math.round(S.m[c].sat)}`)).join('')}</div>`
+    + (near.length ? `<div class="h5" style="margin-top:8px">隣の市町村</div><div class="towns">${near.map(c => btn(c, `関係度 ${Math.round(S.rel[0][c])}`)).join('')}</div>` : '');
+}
 // 自陣営の市町村を選んだとき、陣営の中での位置を1行で（2市町村以上のとき）
 function shareLine(c, month) {
   const own = L.owned(S, 0);
@@ -609,9 +644,9 @@ $('sfxX').onclick = () => { prefs.soundHint = false; savePrefs(); sfxHint(); toa
 function select(c) { sel = c && sel !== c ? c : null; detailOpen = false; if (sel) sfx('tap'); paintMap(); renderSheet(); if (sel) { const c = sel; requestAnimationFrame(() => { if (sel === c) ensureVisible(c); }); } }
 
 let toastTimer = null;
-function toast(msg) {
+function toast(msg, ms) {
   const t = $('toast'); t.textContent = msg; t.hidden = false;
-  clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 2600);
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, ms || 2600);
 }
 
 function budgetHtml() {
@@ -652,10 +687,14 @@ function showInvite(c, before, chance) {
 
 // ---------- 月を終える ----------
 let queue = [], inBattle = false;
+// 連打で2か月進まないように、月を終えた直後の0.8秒は受け付けない
+let lastEnd = 0;
 function endMonth() {
   if (!S || S.over) return;
   if (!$('overlay').hidden) return;
   if (replay || inBattle) return;
+  if (Date.now() - lastEnd < 800) return;
+  lastEnd = Date.now();
   // 見込み30〜70％の住民投票は、月を終える前に決戦で決める
   const due = prefs.battle === false ? [] : L.battlesDue(S);
   if (due.length) { runBattles(due); return; }
@@ -1151,7 +1190,8 @@ const GUIDE = [
     '斎藤道三・織田信長・竹中半兵衛など岐阜ゆかりの歴史人物を、人材の画面から招ける',
     'ゆかりの地を持ち、偉人ごとの条件（合併を1回可決、財源100億円など）を満たすと招ける',
     `効果は${L.ADV_MONTHS}か月だけ`,
-    '毎年9月は関ケ原町を持つ陣営に関ケ原の偉人が訪れる']],
+    '毎年9月は関ケ原町を持つ陣営に関ケ原の偉人が訪れる',
+    '「ゆかり」は出身地に限らず、城や活動の地、記念施設も含む。助言のセリフはゲーム用の創作で、本人の言葉ではない']],
   ['魅力・産業・観光', '魅力が高いと関係度と賛成が伸びる', [
     '<b>魅力</b>は産業力と観光力の平均',
     '陣営の魅力が相手より10以上高いと関係度が毎月自然に上がり、住民投票の賛成も増える',
@@ -1284,11 +1324,12 @@ function showTitle() {
   openOverlay(`${art('img/title.webp', 'art-top art-hero')}<div class="kicker"><span>令和8年4月　岐阜県・21市19町2村</span>${buildTag()}</div>
     <div class="logo">岐阜<em>統一</em>戦記</div>
     <p class="lead">あなたは岐阜県のある市町村の首長。交流と協定で信頼を集め、住民投票で合併を重ね、42市町村をひとつにまとめてください。</p>
+    ${brokenSave && !canCont ? '<p class="note" style="color:var(--bad);margin:0 0 14px">前の保存データが壊れていて、読み込めませんでした。新しく始めると上書きされます（読めなかったデータは、このブラウザに控えとして残してあります）。</p>' : ''}
     ${canCont ? `<div class="row" style="margin:0 0 18px"><button class="btn main" id="contBtn">つづきから（${L.dateOf(saved.turn).label}・${saved.factions[0] ? NAMES[saved.factions[0].capital] : ''}・${saved.over ? saved.goal + '圏域を制覇済み' : saved.mode === 'region' ? saved.goal + '圏域制覇' : '県内統一'}）</button></div>` : ''}
     <div class="pick">${modeHtml()}<div><h4>首長になる市町村を選ぶ</h4><p class="sub" style="margin:0 0 10px">タップすると特産や最初の人材などの詳細が見られます。月収支は最初の月（4月）の収入から維持費と給与を引いた額で、季節や内政で変わります。</p><div class="segs" role="group" aria-label="市町村の並べ方">${tabs}</div></div>
     <div class="pick" id="pickList">${pickListHtml()}</div></div>
     <div class="h4" style="margin-top:22px">ガイド</div>${guideHtml()}
-    <p class="sub" style="margin-top:14px">人口は統計を丸めた概数、そのほかの数値はゲーム用です。登場する陣営・人材・出来事は架空です（偉人アドバイザーは岐阜ゆかりの歴史人物）。地図：国土数値情報（行政区域データ）を加工</p>`, 'title-panel');
+    <p class="sub" style="margin-top:14px">人口は2020年国勢調査を丸めた概数（白川村は100人単位、ほかは1000人単位）、そのほかの数値はゲーム用です。偉人のセリフは創作です。登場する陣営・人材・出来事は架空です（偉人アドバイザーは岐阜ゆかりの歴史人物）。地図：国土数値情報（行政区域データ）を加工</p>`, 'title-panel');
   bindPickList();
   // 詳細から戻ったら、選んでいた市町村が見えるように畳みを開く
   if (lastPick) { const el = document.querySelector(`[data-start="${lastPick}"]`); if (el) { const d = el.closest('details'); if (d) d.open = true; el.scrollIntoView({ block: 'center' }); } }

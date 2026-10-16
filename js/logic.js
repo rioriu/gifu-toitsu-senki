@@ -13,7 +13,7 @@
     '21403': ['西濃', 22, ''], '21404': ['西濃', 23, ''],
     '21205': ['中濃', 85, '刃物'], '21207': ['中濃', 19, '美濃和紙'], '21211': ['中濃', 57, ''],
     '21214': ['中濃', 100, ''], '21219': ['中濃', 39, '郡上おどり'], '21501': ['中濃', 8, ''],
-    '21502': ['中濃', 6, ''], '21503': ['中濃', 10, ''], '21504': ['中濃', 4, ''],
+    '21502': ['中濃', 6, ''], '21503': ['中濃', 10, ''], '21504': ['中濃', 3, ''],
     '21505': ['中濃', 10, ''], '21506': ['中濃', 7, ''], '21507': ['中濃', 2, ''],
     '21521': ['中濃', 18, ''],
     '21204': ['東濃', 107, '美濃焼'], '21206': ['東濃', 77, '栗きんとん'], '21208': ['東濃', 37, '美濃焼'],
@@ -804,9 +804,12 @@
   }
 
   function upkeep(st, f) { return Math.round(owned(st, f).reduce((s, c) => s + 0.8 + st.m[c].pop * 0.012, 0) + staffUpkeep(st, f)); }
+  // 特産タグのほかに季節の観光だけを持つ市町村（関市の小瀬鵜飼）。産業や魅力の強みは特産タグのまま
+  const SEASON_EXTRA = { '21205': ['鵜飼'] };
+  function seasonTags(code) { return [INFO[code][2], ...(SEASON_EXTRA[code] || [])].filter(Boolean); }
+  // 観光収入の季節の倍率。季節が重なる月（関市の10月：刃物と鵜飼）は重ねず、高いほうを使う
   function seasonX(code, month) {
-    const s = SEASON[INFO[code][2]];
-    return s && s.months.includes(month) ? s.x : 1;
+    return seasonTags(code).reduce((m, t) => { const s = SEASON[t]; return s && s.months.includes(month) ? Math.max(m, s.x) : m; }, 1);
   }
   function incomeOf(st, code, month) {
     const x = st.m[code];
@@ -1449,7 +1452,7 @@
   }
 
 
-  const api = { FLOW_SAT, INDEP_SAT, CALM_SAT, INDEP_MONTHS, outflow, DISASTERS, DIS_SAT, AID_REL, AID_SAT, AID_MONTHS, disArea, disLabel, aidable, INVITE_FAIL_IND, INVITE_LEAD, inviteChance, ELECT_TERM, ELECT_WINDOW, RALLY_STEP, RALLY_MAX, ensureElect, electLeft, electExpect, electMine, raceDue, BATTLE_MIN, BATTLE_MAX, battleExpect, battlesDue, setBattle, JOIN_TOWNS, JOIN_RATIO, JOIN_SAT, AI_GUARD, voteExpect, AI_IDLE, FIRMS, LURE_MONTHS, LURE_PT, LURE_MAX, firmInc, sitePoint, lureSite, lureBid, lureScore, lureParts, lureRows, ADVISORS, ADV_BY_ID, ADV_MONTHS, ADV_COOL, ADV_SLOT2, ensureAdv, advCond, advMeasure, advOf, advFx, advBonus, advMax, advUsed, advHolder, canInviteAdv, inviteAdv, advise, advVote, regionLength, talksMax, APPEAL_TALKS, appeal, appealOf, appealRel, appealVote, INFO, REGIONS, MODES, regionCodes, goalOf, continueToUnify, CMDS, dateOf, difficultyOf, newGame, owned, apMax, totalPop, avgSat, incomeOf,
+  const api = { seasonTags, FLOW_SAT, INDEP_SAT, CALM_SAT, INDEP_MONTHS, outflow, DISASTERS, DIS_SAT, AID_REL, AID_SAT, AID_MONTHS, disArea, disLabel, aidable, INVITE_FAIL_IND, INVITE_LEAD, inviteChance, ELECT_TERM, ELECT_WINDOW, RALLY_STEP, RALLY_MAX, ensureElect, electLeft, electExpect, electMine, raceDue, BATTLE_MIN, BATTLE_MAX, battleExpect, battlesDue, setBattle, JOIN_TOWNS, JOIN_RATIO, JOIN_SAT, AI_GUARD, voteExpect, AI_IDLE, FIRMS, LURE_MONTHS, LURE_PT, LURE_MAX, firmInc, sitePoint, lureSite, lureBid, lureScore, lureParts, lureRows, ADVISORS, ADV_BY_ID, ADV_MONTHS, ADV_COOL, ADV_SLOT2, ensureAdv, advCond, advMeasure, advOf, advFx, advBonus, advMax, advUsed, advHolder, canInviteAdv, inviteAdv, advise, advVote, regionLength, talksMax, APPEAL_TALKS, appeal, appealOf, appealRel, appealVote, INFO, REGIONS, MODES, regionCodes, goalOf, continueToUnify, CMDS, dateOf, difficultyOf, newGame, owned, apMax, totalPop, avgSat, incomeOf,
     factionIncome, grantOf, tagInfo, upkeep, cmdCost, cmdEffect, SCALES, SCALABLE, gradeOf, GRADE_PAY, faceOf, SCOUT, canScout, scout, ROLES, ABIL, ensureStaff, staffOf, staffMax, abil, roleVal, hireCandidates, hireCost, canHire, hire, dismiss, assignRole, autoAssign, staffUpkeep, aiStaff, inTalk, BID_MAX, KEEP_MAX, KEEP_STEP, canDo, doCmd, endTurn, adjacentTo, talksOf, seasonX, clamp };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.GameLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);
