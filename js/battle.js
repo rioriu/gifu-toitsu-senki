@@ -670,7 +670,7 @@
         <li><span class="k" style="background:var(--b-opp)">2</span><span>${words.opp}も攻めてくる。道の途中でぶつかると、同じ数ずつ減る</span></li>
         <li><span class="k" style="background:var(--warn)">3</span><span>下の人材の技は、押してから地区を押す</span></li></ul>`}
       <div class="bt-btns"><button class="secondary" type="button" data-cmd="auto">おまかせ</button><button class="primary" type="button" data-cmd="begin">決戦開始</button></div>
-      <p class="bt-note">おまかせは、いままでと同じ計算（見込み±10％の運）で決めます。メニューで決戦をしない設定にもできます。</p>`);
+      <p class="bt-note">おまかせは、いままでと同じ計算（見込み±10％の運）で決めます。メニューで決戦をしない設定にもできます。途中でアプリやページを閉じると、この決戦は月の途中からやり直しになります（決着した結果は保存されます）。</p>`);
   }
 
   function showEvent() {

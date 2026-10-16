@@ -1346,8 +1346,12 @@ function showTitle() {
 }
 function startNew(code) {
   S = L.newGame(MAP, code, (Date.now() & 0x7fffffff), pickMode());
+  // 最初の4月は月替わりの処理を通らないので、高山祭（春）の便りだけここで出す（災害や企業進出などの月の処理はしない）
+  if (L.dateOf(S.turn).month === 4) S.log.push({ t: S.turn, text: '高山市は高山祭（春）でにぎわっています', kind: 'season' });
   afterLoad(); save();
-  toast(`${NAMES[code]}の首長に就任しました`);
+  const hello = () => toast(`${NAMES[code]}の首長に就任しました`);
+  const fest = prefs.season !== false && seasonOf(S.turn);
+  if (fest) showSeason(fest, () => { closeOverlay(); hello(); }); else hello();
 }
 function afterLoad() {
   L.ensureStaff(S); L.ensureAdv(S); L.ensureElect(S);
