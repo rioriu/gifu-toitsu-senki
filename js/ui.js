@@ -36,7 +36,7 @@ function ownerName(c) { const o = S.m[c].owner; return o < 0 ? '独立' : S.fact
 
 // ---------- 地図 ----------
 const NS = 'http://www.w3.org/2000/svg';
-const pathEls = {}, labelEls = {}, kanaEls = {};
+const pathEls = {}, mapLabels = [];
 function buildMap() {
   const g = $('munis'), lg = $('labels');
   for (const m of MAP.muni) {
@@ -44,12 +44,16 @@ function buildMap() {
     p.setAttribute('d', m.d); p.setAttribute('class', 'mu'); p.dataset.code = m.code;
     p.setAttribute('fill-rule', 'evenodd');
     g.appendChild(p); pathEls[m.code] = p;
-    const t = document.createElementNS(NS, 'text');
-    t.setAttribute('x', m.lx); t.setAttribute('y', m.ly); t.textContent = m.name;
-    lg.appendChild(t); labelEls[m.code] = t;
-    const k = document.createElementNS(NS, 'text');
-    k.setAttribute('x', m.lx); k.setAttribute('class', 'kana'); k.textContent = KANA[m.code] || '';
-    lg.appendChild(k); kanaEls[m.code] = k;
+    // 飛び地にも同じ市の名前を添える。主な名前は先に置き、補足は拡大したときだけ出す
+    for (const [i, label] of [m, ...(m.labels || [])].entries()) {
+      const t = document.createElementNS(NS, 'text');
+      t.setAttribute('x', label.lx); t.setAttribute('y', label.ly); t.textContent = label.name;
+      lg.appendChild(t);
+      const k = document.createElementNS(NS, 'text');
+      k.setAttribute('x', label.lx); k.setAttribute('class', 'kana'); k.textContent = i === 0 ? KANA[m.code] || '' : label.kana || '';
+      lg.appendChild(k);
+      mapLabels.push({ code: m.code, label, primary: i === 0, text: t, kana: k });
+    }
   }
   const chips = $('chips');
   for (const r of ['自陣', '全県', ...L.REGIONS]) {
@@ -141,19 +145,19 @@ function updateLabels() {
   // ふりがなは名前の上に小さく。そのぶん重なりを見る枠も上へ広げる
   const fs = 12 / ppu, kfs = fs * 0.6, kana = kanaOn(), placed = [];
   const isCap = c => S && S.factions.some(f => f.alive && f.capital === c);
-  const order = Object.keys(labelEls).sort((a, b) => (b === sel) - (a === sel) || isCap(b) - isCap(a) || AREA[b] - AREA[a]);
-  for (const c of order) {
-    const m = BYCODE[c], kw = kana ? (KANA[c] || '').length * kfs * 1.02 : 0, w = Math.max(NAMES[c].length * fs * 1.05, kw) + fs * 0.4, h = fs * 1.3;
+  const order = [...mapLabels].sort((a, b) => Number(b.primary) - Number(a.primary) || (b.code === sel) - (a.code === sel) || isCap(b.code) - isCap(a.code) || b.label.area - a.label.area);
+  for (const entry of order) {
+    const { code: c, label: m, primary, text: t, kana: k } = entry;
+    const kw = kana ? k.textContent.length * kfs * 1.02 : 0, w = Math.max(m.name.length * fs * 1.05, kw) + fs * 0.4, h = fs * 1.3;
     const box = { x0: m.lx - w / 2, x1: m.lx + w / 2, y0: m.ly - h / 2 - (kana ? kfs * 1.1 : 0), y1: m.ly + h / 2 };
-    const must = c === sel || isCap(c) || (replay && replay.focus === c);
-    const fits = Math.sqrt(AREA[c]) * ppu > 30 && !placed.some(q => q.x0 < box.x1 && box.x0 < q.x1 && q.y0 < box.y1 && box.y0 < q.y1);
+    const must = primary && (c === sel || isCap(c) || (replay && replay.focus === c));
+    const fits = (primary || ppu >= 1) && Math.sqrt(m.area) * ppu > 30 && !placed.some(q => q.x0 < box.x1 && box.x0 < q.x1 && q.y0 < box.y1 && box.y0 < q.y1);
     const show = must || fits;
     if (show) placed.push(box);
-    labelEls[c].style.display = show ? '' : 'none';
-    const k = kanaEls[c];
+    t.style.display = show ? '' : 'none';
     k.style.display = show && kana ? '' : 'none';
     if (show && kana) { k.setAttribute('y', (m.ly - fs * 0.5 - kfs * 0.6).toFixed(2)); k.setAttribute('font-size', kfs.toFixed(2)); k.setAttribute('stroke-width', (2.4 / ppu).toFixed(2)); }
-    labelEls[c].setAttribute('class', isCap(c) ? 'cap' : '');
+    t.setAttribute('class', primary && isCap(c) ? 'cap' : '');
   }
 }
 function zoomAt(cx, cy, f) {

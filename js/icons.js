@@ -60,11 +60,14 @@ window.TownIcons = (() => {
     '21382': ['輪中', `<circle cx="16" cy="16" r="13.5" fill="#9fd0ef"/><circle cx="16" cy="16" r="9.5" fill="#6a9a4b"/><circle cx="16" cy="16" r="7" fill="#e3ecb8"/>
       <path d="M10.5 19.5v-3.5l3-2.5 3 2.5v3.5z" fill="#f4e6c8"/><path d="M16.5 21v-3l2.5-2 2.5 2v3z" fill="#f4e6c8"/>
       <path d="M5 9.5c1-1 2 0 3-1M24 24.5c1-1 2 0 3-1" stroke="#4f86c6"/>`],
-    '21383': ['安八の梨', `<path d="M16 8V4.5"/><path d="M16.5 6c1.5-2.5 5-3 7-1.5-2 2.5-5 2.5-7 1.5z" fill="#6a9a4b"/>
-      <circle cx="16" cy="18" r="10" fill="#d9b864"/>${[[11, 15], [14, 12], [19, 13], [21, 18], [17, 17], [12, 20], [15, 23], [20, 22], [10, 18], [23, 15]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r=".6" fill="#a8873a" stroke="none"/>`).join('')}`],
+    '21383': ['安八百梅園の梅', `<path d="M5 27c7-5 12-12 20-22M14 18l-8-2M20 12l6 4" stroke="#6b4a2e" stroke-width="2"/>
+      <g transform="translate(13 12)">${around(5, d => `<ellipse cx="0" cy="-4.2" rx="3.4" ry="4.2" transform="rotate(${d})" fill="#e58aa3"/>`)}
+      <circle r="2.3" fill="#f2c14e"/>${ring(0, 0, 3, 5, .5, '#f8e4a1')}</g>
+      <circle cx="23" cy="21" r="4" fill="#d9465f"/><path d="M23 23v-3" stroke="#f8e4a1"/>`],
     '21401': ['徳山ダム', `<path d="M2 28V13l6-7 5 6v16z" fill="#6a9a4b"/><path d="M30 28V13l-6-7-5 6v16z" fill="#5a8a40"/>
-      <path d="M11 9h10v4H11z" fill="#6fb0e0"/><path d="M10 13h12l-1.5 15h-9z" fill="#c9cdd1"/>
-      <path d="M14.5 13.5h3V28h-3z" fill="#cfeaf7"/><path d="M10 13h12"/><path d="M3 28h26" stroke="#4f86c6" stroke-width="1.6"/>`],
+      <path d="M9 9h14l3 6H6z" fill="#6fb0e0"/><path d="M12 14h8l8 14H4z" fill="#a6a297"/>
+      <path d="M12 14h8M10 18h12M7.5 22.5h17M14 14l-3 14M18 14l3 14" stroke="#6e6a62"/>
+      <path d="M11.5 10.5h9" stroke="#cfeaf7"/>`],
     '21403': ['野古墳群', `<g transform="rotate(35 16 16)"><path d="M16 4a7 7 0 0 1 4.6 12.3L25 28H7l4.4-11.7A7 7 0 0 1 16 4z" fill="none" stroke="#9fd0ef" stroke-width="5"/>
       <path d="M16 4a7 7 0 0 1 4.6 12.3L25 28H7l4.4-11.7A7 7 0 0 1 16 4z" fill="#6a9a4b"/>${[[15, 9], [18, 12], [13, 13], [14, 22], [18, 24], [11, 25], [21, 21]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="1.2" fill="#3f6b3a" stroke="none"/>`).join('')}</g>`],
     '21404': ['いび茶', `<path d="M16 28V14" stroke="#3f6b3a" stroke-width="1.6"/>
@@ -77,7 +80,7 @@ window.TownIcons = (() => {
       <path d="M8.5 11.5c3-1 5.5 1 10 0M8.5 16.5c2.5 1 6.5-1 10 0M8.5 21.5c3-1 5.5 0 9-1" stroke="#d6c8a6"/>`],
     '21211': ['堂上蜂屋柿', `<path d="M3 4.5h26" stroke="#6b4a2e" stroke-width="2.4"/><path d="M9 4.5v24M16 4.5v24M23 4.5v24" stroke="#9a6a3e"/>
       ${[[9, 9], [9, 17], [9, 25], [16, 13], [16, 21], [23, 9], [23, 17], [23, 25]].map(([x, y]) => `<path d="M${x - 3.2} ${y - 2}c0-1.5 1.5-2.5 3.2-2.5s3.2 1 3.2 2.5c0 2.5-1.5 4.3-3.2 5.3-1.7-1-3.2-2.8-3.2-5.3z" fill="#c4602a"/><path d="M${x - 1.4} ${y - 2.6}h2.8" stroke="#4f3a1f" stroke-width="1.4"/>`).join('')}`],
-    '21214': ['花フェスタのバラ', `<path d="M16 19v10" stroke="#3f6b3a" stroke-width="1.6"/><path d="M16 25.5c-3.5 0-5.5-2-5.5-4.5 3.5 0 5.5 1.5 5.5 4.5z" fill="#6a9a4b"/>
+    '21214': ['ローズガーデンのバラ', `<path d="M16 19v10" stroke="#3f6b3a" stroke-width="1.6"/><path d="M16 25.5c-3.5 0-5.5-2-5.5-4.5 3.5 0 5.5 1.5 5.5 4.5z" fill="#6a9a4b"/>
       <path d="M16 23c3 0 5-1.6 5-4-3 0-5 1.4-5 4z" fill="#6a9a4b"/><circle cx="16" cy="11.5" r="8" fill="#d9465f"/>
       <path d="M16 11.5c1.6-1 3.2 0 2.6 2s-4.2 2-5.2 0 1-5 4.2-5 5.2 3 4.2 6.2" stroke="#9c2840"/>`],
     '21219': ['郡上おどり', `<rect x="4" y="6" width="12" height="22" rx="4.5" fill="#d8ad6a" transform="rotate(-10 10 17)"/>
@@ -90,7 +93,7 @@ window.TownIcons = (() => {
     '21503': ['漕艇のまち', `<path d="M6.5 25.5L23 7M25.5 25.5L9 7" stroke="#9a6a3e" stroke-width="2"/>
       <ellipse cx="24.5" cy="5.5" rx="4.2" ry="2" transform="rotate(-48 24.5 5.5)" fill="#d9573b"/><ellipse cx="7.5" cy="5.5" rx="4.2" ry="2" transform="rotate(48 7.5 5.5)" fill="#d9573b"/>
       <path d="M3 28c3-1.5 5 0 8-1M21 27c3-1.5 5 0 8-1" stroke="#4f86c6"/>`],
-    '21504': ['日本最古の石', `<path d="M4 25l3.5-9 6-5.5 8 1.2 5 5.5 1.5 7.8z" fill="#8f8a80"/>
+    '21504': ['20億年前の石', `<path d="M4 25l3.5-9 6-5.5 8 1.2 5 5.5 1.5 7.8z" fill="#8f8a80"/>
       <path d="M6.5 20c5-1 12.5 0 20 1M9.5 15c4.5-.5 9 0 13.5 1.2" stroke="#6e6a62"/><path d="M25 2.5l1.1 2.9 2.9 1.1-2.9 1.1-1.1 2.9-1.1-2.9-2.9-1.1 2.9-1.1z" fill="#f2c14e" stroke="#c9952a" stroke-width="1"/>`],
     '21505': ['命のビザ', `<path d="M8 4h12l5 5v19H8z" fill="#fcf8ee"/><path d="M20 4v5h5" fill="#e9e1cf"/>
       <path d="M11 12h8M11 15h11M11 18h7" stroke="#9aa0a6"/><path d="M11 23.5c1-1.5 2-1.5 2.5 0s1.5 1.5 2.5 0" stroke="#4b6fa8"/>
