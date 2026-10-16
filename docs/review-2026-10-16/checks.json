@@ -1,0 +1,116 @@
+{
+  "date": "2026-10-16",
+  "localVersion": "0.1.7",
+  "publicVersion": "0.1.4",
+  "mobile": {
+    "width": 375,
+    "height": 812,
+    "overflow": false,
+    "chipHeight": 29,
+    "menu": [
+      38,
+      38
+    ],
+    "smallTownBounds": {
+      "21302": [
+        32,
+        21
+      ],
+      "21303": [
+        52,
+        27
+      ],
+      "21421": [
+        12,
+        26
+      ]
+    },
+    "pinch": "not verified on touch hardware"
+  },
+  "season": {
+    "seasonCases": 504,
+    "washiBonus": 8,
+    "sekiMayMultiplier": 1,
+    "sekiJuneMultiplier": 1,
+    "sekiOctoberMultiplier": 1.6,
+    "gifuMayMultiplier": 1.6,
+    "initialAprilSeasonLogs": [],
+    "seasonal": [
+      {
+        "month": 5,
+        "text": "長良川鵜飼が開幕。岐阜市・関市の観光収入が伸びます"
+      },
+      {
+        "month": 8,
+        "text": "郡上おどりが最高潮。郡上市の満足度が上がりました"
+      },
+      {
+        "month": 9,
+        "text": "関ケ原の戦いの月。関ケ原町を持つ陣営には、毎年ゆかりの偉人が助言に訪れます"
+      },
+      {
+        "month": 10,
+        "text": "高山市は高山祭（秋）でにぎわっています"
+      },
+      {
+        "month": 4,
+        "text": "高山市は高山祭（春）でにぎわっています"
+      }
+    ]
+  },
+  "save": {
+    "roundTrips": 1008,
+    "legacy": [
+      {
+        "version": "0.1.4",
+        "afterTurn": 7,
+        "status": "pass"
+      },
+      {
+        "version": "0.0.8",
+        "afterTurn": 7,
+        "status": "pass"
+      }
+    ],
+    "ui": [
+      {
+        "case": "broken-json",
+        "error": null
+      },
+      {
+        "case": "valid-json-empty-object",
+        "error": "Cannot read properties of undefined (reading '0')"
+      },
+      {
+        "case": "valid-json-number",
+        "error": "Cannot read properties of undefined (reading '0')"
+      },
+      {
+        "case": "storage-write-failure",
+        "returns": "undefined",
+        "notice": null
+      },
+      {
+        "case": "month-guards",
+        "overlay": 0,
+        "replay": 0,
+        "battle": 0,
+        "twoClicksWithNoEffects": 2
+      }
+    ],
+    "battle": [
+      {
+        "case": "completed-result-save-load",
+        "owner": 0,
+        "status": "pass"
+      }
+    ]
+  },
+  "battle": {
+    "districts": 42,
+    "connectedAndInside": true,
+    "backgroundClockStopped": true,
+    "resumeTimeAdded": 0.016,
+    "pauseClockStopped": true
+  }
+}
