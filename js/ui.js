@@ -749,7 +749,13 @@ function finishMonth() {
   else afterMonth(res, before, summary);
 }
 function afterMonth(res, before, summary) {
-  const steps = mergeSteps(res.steps);
+  let steps = mergeSteps(res.steps);
+  if (prefs.replayScope === 'mine') {
+    steps = steps.filter(s => stepMine(s, before));
+    // 見せない動きで持ち主が変わった市町村は、はじめから今の色で塗る
+    const shown = new Set(steps.flatMap(s => s.kind === 'join' ? s.towns : [s.code]));
+    for (const c in before) if (!shown.has(c)) before[c] = S.m[c].owner;
+  }
   if (prefs.replay && steps.length) {
     sel = null; render();
     startReplay(steps, before, () => { toast(summary); queue = S.over ? [() => showOver()] : []; next(); });
@@ -777,6 +783,15 @@ function mergeSteps(steps) {
     else out.push({ ...s });
   }
   return out;
+}
+// 自陣に関わる動きか。設定で「自陣に関わるものだけ」を選んだときは、これだけを地図で見せる
+function stepMine(s, before) {
+  if (s.kind === 'rival') return s.mine || s.vsMe;
+  if (s.kind === 'contest') return s.winner === 0 || s.loser === 0;
+  if (s.kind === 'vote') return s.f === 0 || s.prev === 0 || !!(s.contest && s.contest.loser === 0);
+  if (s.kind === 'elect') return s.ch === 0 || s.prev === 0;
+  if (s.kind === 'lure' || s.kind === 'join') return !!s.mine;
+  return before[s.code] === 0 || S.m[s.code].owner === 0;
 }
 function stepCaption(s) {
   const n = NAMES[s.code];
@@ -1138,6 +1153,7 @@ function showMenu() {
     <label class="toggle"><input type="checkbox" id="sfToggle" ${prefs.sound === true ? 'checked' : ''}>効果音を鳴らす</label>
     <label class="toggle"><input type="checkbox" id="knToggle" ${kanaOn() ? 'checked' : ''}>市町村名にふりがなを付ける</label>
     <label class="toggle"><input type="checkbox" id="rpToggle" ${prefs.replay ? 'checked' : ''}>月を終えたあと、相手の動きを地図で見せる</label>
+    <div class="segs subopt" id="rpScope" role="group" aria-label="地図で見せる動き" ${prefs.replay ? '' : 'hidden'}>${[['all', '全部'], ['mine', '自陣に関わるものだけ']].map(([k, lb]) => `<button data-rp="${k}" aria-pressed="${(prefs.replayScope === 'mine' ? 'mine' : 'all') === k}">${lb}</button>`).join('')}</div>
     <label class="toggle"><input type="checkbox" id="ssToggle" ${prefs.season !== false ? 'checked' : ''}>季節の行事（高山祭・鵜飼など）を、月を終えたときに知らせる</label>
     <label class="toggle"><input type="checkbox" id="btToggle" ${prefs.battle !== false ? 'checked' : ''}>見込み${L.BATTLE_MIN}〜${L.BATTLE_MAX}％の住民投票を決戦で決める（外すと今までの計算で決まる）</label>
     <div class="row"><button class="btn" id="guideBtn">ガイド（遊び方の説明）</button></div>
@@ -1149,7 +1165,11 @@ function showMenu() {
   if ($('overBtn')) $('overBtn').onclick = showOver;
   $('sfToggle').onchange = e => { prefs.sound = e.target.checked; savePrefs(); if (window.Sfx) { Sfx.set(prefs.sound); sfx('up'); } sfxHint(); };
   $('knToggle').onchange = e => { prefs.kana = e.target.checked; savePrefs(); updateLabels(); renderSheet(); };
-  $('rpToggle').onchange = e => { prefs.replay = e.target.checked; savePrefs(); };
+  $('rpToggle').onchange = e => { prefs.replay = e.target.checked; savePrefs(); $('rpScope').hidden = !prefs.replay; };
+  for (const b of document.querySelectorAll('[data-rp]')) b.onclick = () => {
+    prefs.replayScope = b.dataset.rp; savePrefs();
+    for (const x of document.querySelectorAll('[data-rp]')) x.setAttribute('aria-pressed', x === b ? 'true' : 'false');
+  };
   $('btToggle').onchange = e => { prefs.battle = e.target.checked; savePrefs(); };
   $('ssToggle').onchange = e => { prefs.season = e.target.checked; savePrefs(); };
   $('resetBtn').onclick = () => {
