@@ -397,6 +397,10 @@ function renderSheet() {
     const advTag = advs.length ? `<span class="tag adv-tag">助言 ${advs.map(a => L.ADV_BY_ID[a.id].name).join('・')}</span>` : '';
     const advNote = advs.length ? `<div class="advs">${advs.map(a => advCard(a.id, a.left, true)).join('')}</div>` : advHint();
     const lureTag = S.lure ? `<span class="tag lure-tag">誘致合戦 あと${S.lure.left}か月</span>` : '';
+    const pjMine = L.projOf(S, 0);
+    const pjTag = pjMine ? `<span class="tag">工事中 ${pjMine.name} あと${L.projState(S, pjMine.id).left}か月</span>` : '';
+    const siegeTag = S.siege ? `<span class="tag lure-tag">包囲網</span>` : '';
+    const siegeNote = S.siege ? `<p class="note talking" style="color:var(--bad)">包囲網：ライバル陣営が手を組み、あなたの陣営を集中して狙っています（ライバルは行動力+1、隣り合うあなたの陣営の市町村との関係度が毎月+${L.SIEGE_REL}）。県の人口の${Math.round(L.SIEGE_OFF * 100)}％を下回るか、ライバルが1陣営になると解けます（いま${Math.round(L.popShare(S, 0) * 100)}％）</p>` : '';
     // 災害の予報：自陣営の市町村が範囲に入っていれば、防災力と一緒に知らせる
     const fcMine = fcTowns();
     const fcTag = fcMine.length ? `<span class="tag lure-tag">${S.fc.kind}の予報</span>` : '';
@@ -406,13 +410,14 @@ function renderSheet() {
     const open = Object.keys(S.m).filter(c => S.m[c].owner > 0 && !S.m[c].race && L.electLeft(S, c) < L.ELECT_WINDOW && L.adjacentTo(S, ADJ, c, 0));
     const electNote = (races.length ? `<p class="note talking">首長選挙：${races.map(c => `<b>${NAMES[c]}</b>（${S.m[c].race.inc === 0 ? '対立候補あり' : 'あなたの候補'}・見込み${Math.round(L.electMine(S, c))}％・あと${L.electLeft(S, c) + 1}か月）`).join('、')}。台帳の「演説会」で得票を伸ばせます</p>` : '')
       + (open.length ? `<p class="note">${open.map(c => NAMES[c]).join('・')}で首長選挙が近づいています。候補を立てて当選すれば、自陣営に移ります</p>` : '');
-    sheetFrame(`${TI.icon(me.capital)}<h2>${rb(me.capital)}陣営</h2><span class="tag">${L.owned(S, 0).length}市町村</span>${goalTag()}${fcTag}${lureTag}${advTag}`,
+    sheetFrame(`${TI.icon(me.capital)}<h2>${rb(me.capital)}陣営</h2><span class="tag">${L.owned(S, 0).length}市町村</span>${goalTag()}${siegeTag}${fcTag}${lureTag}${pjTag}${advTag}`,
       first ? '<b>隣の市町村をタップ</b>して、交流事業で関係度を上げましょう' : '',
-      todoHtml(),
+      siegeNote + todoHtml() + policyHtml(),
       townsHtml() + `<p class="facts num">人口 ${L.totalPop(S, 0).toFixed(1)}千人 · 平均満足度 ${Math.round(L.avgSat(S, 0))} · 収入 ${L.factionIncome(S, 0, L.dateOf(S.turn).month)}億円/月 · 維持費 ${L.upkeep(S, 0)}億円 · 魅力 ${Math.round(L.appeal(S, 0))} · 協議 同時${L.talksMax(S, 0)}件まで</p>` + fcNote + lureHtml() + electNote + tips + advNote);
     for (const b of sh.querySelectorAll('[data-open-staff]')) b.onclick = () => showStaff('adv');
     for (const b of sh.querySelectorAll('[data-todo]')) b.onclick = () => goTodo(b.dataset.todo, b.dataset.cmd);
     for (const b of sh.querySelectorAll('[data-go]')) b.onclick = () => { sel = null; select(b.dataset.go); };
+    for (const b of sh.querySelectorAll('[data-pol]')) b.onclick = () => { L.setPolicy(S, b.dataset.region, b.dataset.pol); save(); sfx('tap'); renderSheet(); };
     bindLure(sh);
     return;
   }
@@ -439,6 +444,10 @@ function renderSheet() {
     notes += `<p class="note talking"${race.inc === 0 ? ' style="color:var(--bad)"' : ''}>首長選挙（${L.dateOf(x.elect).label}末に開票）：${race.inc === 0 ? `${fname(race.ch)}が対立候補を立てています。` : `あなたの陣営の候補が${fname(race.inc)}の現職に挑んでいます。`}演説会 あなた${race.rally[0]}回／相手${race.rally[other]}回。得票の見込み ${e}％</p>`;
   } else if (race) notes += `<p class="note">首長選挙（${L.dateOf(x.elect).label}末に開票）：${fname(race.ch)}が候補を立て、${fname(race.inc)}の現職に挑んでいます</p>`;
   else if (x.owner >= 0) notes += `<p class="note">次の首長選挙：${L.dateOf(x.elect).label}${eLeft < L.ELECT_WINDOW ? `（あと${eLeft + 1}か月。${mine ? 'ほかの陣営が対立候補を立てられる時期です' : '隣り合っていれば候補を立てられます'}）` : ''}</p>`;
+  if (L.projAt(c)) {
+    const pj = L.projAt(c), ps = L.projState(S, pj.id), who = ps && (ps.f === 0 ? 'あなたの陣営' : S.factions[ps.f].name);
+    notes += `<p class="note">大型事業「${pj.name}」：${ps && ps.done ? `完成（${who}）。この市町村を持つ陣営の収入が毎月+${pj.inc}億円` : ps ? `${who}が工事中（あと${ps.left}か月）` : `まだ着工していません。この市町村を持ち、${pj.region}圏域に${L.projNeed(pj)}つ以上の市町村を持つ陣営が着工できます`}</p>`;
+  }
   if (x.firms && x.firms.length) notes += `<p class="note">立地企業：${x.firms.map(k => k.name).join('、')}（税収 毎月+${L.firmInc(x)}億円。この市町村を持つ陣営に入ります）</p>`;
   if (S.lure && L.lureRows(S, ADJ).some(r => r.site === c)) notes += lureHtml(c);
   // 満足度が低い：人口の流出と独立の動き
@@ -482,23 +491,31 @@ function renderSheet() {
   const btn = k => {
     const sc = L.SCALABLE.includes(k) ? S.budget : undefined;
     const def = L.CMDS[k], r = L.canDo(S, ADJ, 0, k, c, S.ap, sc), cost = L.cmdCost(S, k, c, sc, 0);
-    const e = L.cmdEffect(S, 0, k, sc);
+    // 上がりにくさ（L.SOFT を超えた分は半分）を入れた、実際の上がり幅
+    const cur = { ind: x.ind, tour: x.tour, care: x.sat, dis: x.dis, visit: S.rel[0][c] }[k];
+    const raw = L.cmdEffect(S, 0, k, sc), e = cur === undefined ? raw : L.gainOf(cur, raw);
+    const half = e < raw ? `（${L.SOFT}超は半分）` : '';
     // 産業力・観光力は陣営の魅力にも効くので、上がり幅を添える
     const ga = (k === 'ind' || k === 'tour') ? Math.min(e, 100 - x[k]) / 2 * x.pop / (L.totalPop(S, 0) || 1) : 0;
+    const pj = k === 'build' ? L.projAt(c) : null;
     const note = k === 'care' && mine && x.indep ? `独立の動き：満足度 ${Math.round(x.sat)}→${Math.min(100, Math.round(x.sat) + e)}（${L.CALM_SAT}以上で収まる・あと${x.indep.left}か月）`
       : k === 'dis' ? disNote(x, e, fcHere && mine) : k === 'aid' ? `関係度 +${L.AID_REL}・満足度 +${L.AID_SAT}（${x.hurtKind || '災害'}の被害）`
-      : EFF[k] ? `${EFF[k]} +${e}${ga >= 0.05 ? `・陣営の魅力 +${ga.toFixed(1)}` : ''}`
+      : EFF[k] ? `${EFF[k]} +${e}${half}${ga >= 0.05 ? `・陣営の魅力 +${ga.toFixed(1)}` : ''}`
+      : pj ? `完成すると${pj.region}圏域の自陣営の市町村で${L.projFx(pj)}、ここの収入が毎月+${pj.inc}億円（${pj.months}か月で完成）`
       : k === 'run' ? `当選すれば自陣営に。得票の見込み ${Math.round(L.electExpect(S, 0, c))}％（${L.dateOf(x.elect).label}末に開票）`
       : k === 'rally' ? `得票 +${L.RALLY_STEP}（${race.rally[0]}/${L.RALLY_MAX}回）・いまの見込み ${Math.round(L.electMine(S, c))}％`
       : k === 'lure' ? lureNote()
       : k === 'invite' ? `成功率 ${Math.round(L.inviteChance(S, c) * 100)}％・成功で産業力 +12・人口増${x.inviteLead ? '（前回のつながりで上乗せ）' : ''}` : def.note;
     // 予報の出ている防災対策と、独立の動きがあるときの子育て支援は、並びはそのままで目立たせる
     const urgent = (k === 'dis' && fcHere && mine) || (k === 'care' && mine && !!x.indep);
-    return `<button class="cmd${k === 'talk' ? ' primary' : ''}${urgent ? ' urgent' : ''}${now.includes(k) ? ' wide' : ''}" data-cmd="${k}" aria-disabled="${!r.ok}">
+    return `<button class="cmd${k === 'talk' ? ' primary' : ''}${urgent ? ' urgent' : ''}${now.includes(k) || k === 'build' ? ' wide' : ''}" data-cmd="${k}" aria-disabled="${!r.ok}">
       <span class="ttl"><strong>${cmdIcon(k)}${def.label}</strong><span class="cost num">${cost ? cost + '億・' : ''}行動${def.ap}</span></span><small>${r.ok ? note : r.reason}</small></button>`;
   };
+  // 大型事業：計画のある市町村（圏域に1つ）を持っていて、まだ完成していなければ、別の枠で出す
+  const pjHere = L.projAt(c), pjSt = pjHere && L.projState(S, pjHere.id);
+  const bigBox = mine && pjHere && !(pjSt && pjSt.done) ? `<div class="cmds-big"><p class="h5">大型事業：${pjHere.name}</p><div class="cmds">${btn('build')}</div></div>` : '';
   const btns = (now.length ? `<div class="cmds-now"><p class="h5">いまだけのコマンド</p><div class="cmds">${now.map(btn).join('')}</div></div>` : '')
-    + `<div class="cmds">${cmds.map(btn).join('')}</div>`;
+    + `<div class="cmds">${cmds.map(btn).join('')}</div>` + bigBox;
   // 一行に収まる要点だけ。他陣営・独立なら関係度、自陣営なら満足度を先に出す
   const line = (mine ? `満足度 ${Math.round(x.sat)} · 魅力 ${Math.round(L.appealOf(S, c))} · 収入 ${L.incomeOf(S, c, month).toFixed(1)}億円`
     : `満足度 ${Math.round(x.sat)} · 人口 ${x.pop.toFixed(0)}千人`) + (alert ? ` <b class="alert">${alert}</b>` : '');
@@ -524,7 +541,8 @@ const CMD_ICONS = {
   lure: '<circle cx="12" cy="12" r="9"/><path d="M8.5 6.5l3.5 5 3.5-5M12 11.5V18M9 12.5h6M9 15.5h6"/>',
   run: '<path d="M5 21.5V3.5M5 4h13l-3 4.5 3 4.5H5"/>',
   rally: '<path d="M3 9.5v5h3.5l9.5 5V4.5l-9.5 5z"/><path d="M19 9c1.2 1.2 1.2 4.8 0 6"/>',
-  aid: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V4h6v3M12 10.5v6M9 13.5h6"/>'
+  aid: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V4h6v3M12 10.5v6M9 13.5h6"/>',
+  build: '<path d="M6 21.5V4h12M6 4l4 4M18 4v5M16 9h4v3h-4zM3 21.5h8"/>'
 };
 function cmdIcon(k) {
   return CMD_ICONS[k] ? `<svg class="ci" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${CMD_ICONS[k]}</svg>` : '';
@@ -553,6 +571,7 @@ function todoList() {
   for (const c in S.m) add(c, 'talk', '合併協議できる', `${NAMES[c]}（関係度 ${Math.round(S.rel[0][c])}）`);
   for (const c of own.filter(c => S.m[c].sat < 45).sort((a, b) => S.m[a].sat - S.m[b].sat)) add(c, 'care', '満足度が低い', `${NAMES[c]}（${Math.round(S.m[c].sat)}${L.outflow(S.m[c]) ? '・人口流出中' : ''}）→ 子育て支援`);
   for (const c in S.m) add(c, 'run', '首長選挙に候補を立てられる', `${NAMES[c]}（見込み ${Math.round(L.electExpect(S, 0, c))}％）`);
+  for (const p of L.PROJECTS) add(p.code, 'build', '大型事業に着工できる', `${p.name}（${p.cost}億円）`);
   for (const c in S.m) add(c, 'pact', '連携協定できる', `${NAMES[c]}（関係度 ${Math.round(S.rel[0][c])}）`);
   // 何もなければ、協定に近い隣を1つ
   if (!out.length) {
@@ -566,6 +585,18 @@ function todoHtml() {
   if (!list.length) return '';
   const ap = S.ap > 0 ? '' : '<p class="note">今月の行動力は使い切りました。「月を終える」で次の月へ</p>';
   return `<div class="todo"><div class="h5">いまやるといいこと</div>${list.map(t => `<button data-todo="${t.c}" data-cmd="${t.cmd}"><b>${t.head}</b> <span>${t.text}</span></button>`).join('')}${ap}</div>`;
+}
+// 圏域ごとの方針。自陣営の市町村がある圏域だけ出す。選ぶと、月末にその内政を自動で行う（行動力は使わない）
+function policyHtml() {
+  const regs = L.REGIONS.filter(r => L.owned(S, 0).some(c => L.INFO[c][0] === r));
+  if (!regs.length) return '';
+  const opts = [['', 'なし'], ...Object.entries(L.POLICIES).map(([k, p]) => [k, p.label])];
+  const rows = regs.map(r => {
+    const cur = (S.policy || {})[r] || '', towns = L.policyTowns(S, r);
+    const plan = cur && towns.length ? `今月末：${towns.map(c => NAMES[c]).join('・')}で${L.CMDS[L.POLICIES[cur].cmd].label}（${towns.reduce((a, c) => a + L.cmdCost(S, L.POLICIES[cur].cmd, c, 1, 0), 0)}億円）` : cur ? '今月末：対象の市町村はありません' : '';
+    return `<div class="pol"><span class="pol-r">${r}</span><div class="segs" role="group" aria-label="${r}圏域の方針">${opts.map(([k, lb]) => `<button data-region="${r}" data-pol="${k}" aria-pressed="${cur === k}">${lb}</button>`).join('')}</div>${plan ? `<small>${plan}</small>` : ''}</div>`;
+  }).join('');
+  return `<div class="policy"><div class="h5">圏域の方針</div><p class="note">選んだ内政を、月末にその圏域の値の低い市町村から${L.POLICY_TOWNS}つまで、標準の規模で自動で行います。行動力は使いません（財源が${L.POLICY_RESERVE}億円を切ると止まります）</p>${rows}</div>`;
 }
 // 自陣営と隣の市町村の一覧。地図では押しにくい小さな町（北方町・岐南町など）もここから選べる
 function townsHtml() {
@@ -783,6 +814,13 @@ function finishMonth() {
   if (shows.length) { render(); queue = [...shows, go]; next(); }
   else go();
 }
+// 月の終わりに見せる知らせ（包囲網の結成と、選択肢のある出来事）。いつもの開票結果などのあとに出す
+function monthEndQ(res) {
+  const q = [];
+  if (res.siege) q.push(() => showSiege(next));
+  if (S.choice) q.push(() => showChoice(next));
+  return q;
+}
 function afterMonth(res, before, summary) {
   let steps = mergeSteps(res.steps);
   if (prefs.replayScope === 'mine') steps = steps.filter(s => stepMine(s, before));
@@ -791,15 +829,37 @@ function afterMonth(res, before, summary) {
   for (const c in before) if (!shown.has(c)) before[c] = S.m[c].owner;
   if (prefs.replay && steps.length) {
     sel = null; render();
-    startReplay(steps, before, () => { toast(summary); queue = S.over ? [() => showOver()] : []; next(); });
+    startReplay(steps, before, () => { toast(summary); queue = S.over ? [() => showOver()] : monthEndQ(res); next(); });
   } else {
     render(); toast(summary);
     // 決戦で決めた住民投票は、決戦の開票で見せたので出さない
     monthSfx(res);
     queue = [...res.votes.filter(v => !v.battle).map(v => () => showVote(v, next)), ...res.elects.filter(v => !v.battle).map(v => () => showElect(v, next)), ...res.lures.map(s => () => showLure(s, next)), ...res.joins.map(s => () => showJoin(s, next))];
     if (S.over) queue.push(() => showOver());
+    else queue.push(...monthEndQ(res));
     next();
   }
+}
+function showSiege(onOk) {
+  openOverlay(`<h3>ライバルが包囲網を結成</h3>
+    <p class="sub">あなたの陣営が県の人口の${Math.round(L.popShare(S, 0) * 100)}％を持ったため、ライバル陣営が手を組みました。</p>
+    <ul class="list"><li>ライバル同士の争いをやめ、あなたの陣営の市町村を集中して狙ってきます</li><li>ライバルの行動力が1増えます</li><li>ライバルと隣り合うあなたの陣営の市町村で、ライバルの関係度が毎月+${L.SIEGE_REL}ずつ上がります</li><li>県の人口の${Math.round(L.SIEGE_OFF * 100)}％を下回るか、ライバルが1陣営になると解けます</li></ul>
+    <div class="row"><button class="btn main" id="okBtn">備える</button></div>`);
+  sfx('warn');
+  $('okBtn').onclick = onOk || next;
+}
+// 選択肢のある出来事。選ぶまで閉じない（閉じても、次に開いたときにまた出る）
+function showChoice(onOk) {
+  const v = L.choiceView(S, NAMES);
+  if (!v) { (onOk || next)(); return; }
+  openOverlay(`<div id="choiceBox"><h3>${v.title}</h3><p class="sub">${v.lead}</p>
+    <div class="choices">${v.opts.map((o, i) => `<button class="btn choice" data-choice="${i}"><b>${o.label}</b><small>${o.note}</small></button>`).join('')}</div></div>`);
+  for (const b of document.querySelectorAll('[data-choice]')) b.onclick = () => {
+    const text = L.applyChoice(S, ADJ, NAMES, Number(b.dataset.choice));
+    if (text) { seenLog = S.log.length; toast(text); }
+    sfx('up'); save(); render();
+    (onOk || next)();
+  };
 }
 
 // ---------- 相手の動きを地図で見せる ----------
@@ -1245,6 +1305,20 @@ const GUIDE = [
     `効果は${L.ADV_MONTHS}か月だけ`,
     '毎年9月は関ケ原町を持つ陣営に関ケ原の偉人が訪れる',
     '「ゆかり」は出身地に限らず、城や活動の地、記念施設も含む。助言のセリフはゲーム用の創作で、本人の言葉ではない']],
+  ['内政の進め方', '月1回まで・上がりにくさ・圏域の方針', [
+    '同じ市町村には、同じ内政と交流事業を<b>月1回まで</b>（ほかの市町村なら同じ月にできる）',
+    `関係度・満足度・産業力・観光力・防災力は、${L.SOFT}を超えた分は効果が<b>半分</b>になる`,
+    `<b>圏域の方針</b>（陣営の画面）を選ぶと、月末にその圏域の値の低い市町村から${L.POLICY_TOWNS}つまで、標準の規模で内政を自動で行う。行動力は使わない`,
+    `行動力は市町村が増えるほど増えるが、${L.AP_CAP}まで`]],
+  ['大型事業', '圏域に1つ。完成すると圏域がまとめて伸びる', [
+    `各圏域に1つずつ（${L.PROJECTS.map(p => p.name).join('・')}）`,
+    `中心の市町村を持ち、その圏域に自陣営の市町村が${L.PROJ_TOWNS}つ以上あると着工できる。同時に1つまで`,
+    '完成すると、その圏域の自陣営の市町村がまとめて伸び、中心の市町村を持つ陣営に毎月の収入が入る',
+    '工事中に中心の市町村を失うと中止。ライバルも着工する']],
+  ['包囲網と出来事', '後半の手応え', [
+    `県の人口の${Math.round(L.SIEGE_ON * 100)}％を持つと、ライバル陣営が<b>包囲網</b>を結成し、手を組んであなたの陣営を狙ってくる（${Math.round(L.SIEGE_OFF * 100)}％を下回るか、ライバルが1陣営になると解ける）`,
+    'ときどき、庁舎・ローカル線・商業施設・祭り・移住・処分場など、<b>どちらかを選ぶ出来事</b>が起きる。財源と満足度などが入れ替わる',
+    '出来事の財源の増減は、市町村が多いほど大きくなる']],
   ['魅力・産業・観光', '魅力が高いと関係度と賛成が伸びる', [
     '<b>魅力</b>は産業力と観光力の平均',
     '陣営の魅力が相手より10以上高いと関係度が毎月自然に上がり、住民投票の賛成も増える',
@@ -1411,6 +1485,8 @@ function afterLoad() {
   sel = null; seenLog = S.log.length; closeOverlay(); render();
   // 本拠地のまわりに大きく寄せて始める。隣の市町村をそのままタップできる
   zoomRegion('自陣', true);
+  // 選ばずに閉じた出来事があれば、もう一度出す
+  if (S.choice && !S.over) showChoice(closeOverlay);
 }
 
 $('endBtn').onclick = endMonth;
@@ -1418,7 +1494,7 @@ $('facBtn').onclick = () => S && showFactions();
 $('staffBtn').onclick = () => S && !replay && showStaff();
 $('newsBtn').onclick = () => S && showNews();
 $('menuBtn').onclick = () => S && showMenu();
-$('overlay').addEventListener('click', e => { if (e.target === $('overlay') && S && !$('panel').classList.contains('title-panel') && !queue.length && !$('okBtn') && !$('againBtn')) closeOverlay(); });
+$('overlay').addEventListener('click', e => { if (e.target === $('overlay') && S && !$('panel').classList.contains('title-panel') && !queue.length && !$('okBtn') && !$('againBtn') && !$('choiceBox')) closeOverlay(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('overlay').hidden && $('xBtn')) closeOverlay(); });
 
 function start() {

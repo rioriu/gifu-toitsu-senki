@@ -92,6 +92,16 @@ function botTurn(st, f) {
     if (net() >= 0) break;
     L.assignRole(st, f, p.id, null);
   }
+  // 選択の出来事：財源に余裕があれば1つめ、なければ2つめを選ぶ
+  if (st.choice) L.applyChoice(st, ADJ, NAMES, me.money > 150 ? 0 : 1);
+  // 圏域の方針：財源に余裕があれば、満足度の低い市町村がある圏域は暮らし、ほかは産業
+  for (const r of L.REGIONS) {
+    const own = mine().filter(c => L.INFO[c][0] === r);
+    if (own.length) L.setPolicy(st, r, me.money > 120 ? (own.some(c => st.m[c].sat < 60) ? 'care' : 'ind') : null);
+  }
+  // 大型事業：着工できて、合併協議の貯金を割らなければ着工する
+  const pj = L.PROJECTS.find(p => L.canDo(st, ADJ, f, 'build', p.code, st.ap).ok && me.money - p.cost > reserve() + saving() + 50);
+  if (pj) { L.doCmd(st, NAMES, f, 'build', pj.code); st.ap -= L.CMDS.build.ap; }
   // 偉人：招けるなら招く
   if (st.ap > 0) {
     const a = L.ADVISORS.find(a => L.canInviteAdv(st, f, a.id, st.ap).ok && me.money - a.cost > reserve() + saving() + 10);

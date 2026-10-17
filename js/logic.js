@@ -197,7 +197,9 @@
   function addLog(st, text, kind) { st.log.push({ t: st.turn, text, kind: kind || 'info' }); if (st.log.length > 300) st.log.shift(); }
 
   function owned(st, f) { return Object.keys(st.m).filter(c => st.m[c].owner === f); }
-  function apMax(st, f) { return 3 + Math.floor((owned(st, f).length - 1) / 4) + advBonus(st, f, 'ap'); }
+  // 行動力は市町村が増えるほど増えるが、AP_CAP まで（後半にタップが増えすぎないように。内政は圏域の方針に任せられる）
+  const AP_CAP = 8;
+  function apMax(st, f) { return Math.min(AP_CAP, 3 + Math.floor((owned(st, f).length - 1) / 4)) + advBonus(st, f, 'ap'); }
   function totalPop(st, f) { return owned(st, f).reduce((s, c) => s + st.m[c].pop, 0); }
   function avgSat(st, f) {
     const cs = owned(st, f); const p = totalPop(st, f) || 1;
@@ -815,7 +817,7 @@
     const x = st.m[code];
     const base = x.pop * 0.05 * (0.6 + x.ind / 100);
     const tour = x.tour * 0.05 * seasonX(code, month);
-    return base + tour + firmInc(x);
+    return base + tour + firmInc(x) + projInc(st, code);
   }
   // 地方交付税：人口の少ない市町村ほど多く交付される
   function grantOf(st, f) { return owned(st, f).reduce((s, c) => s + Math.max(0.3, 2.4 - st.m[c].pop * 0.02), 0); }
@@ -823,7 +825,7 @@
     let base = 0, tour = 0, pact = 0, firm = 0;
     for (const c in st.m) {
       const x = st.m[c];
-      if (x.owner === f) { base += x.pop * 0.05 * (0.6 + x.ind / 100); tour += x.tour * 0.05 * seasonX(c, month); firm += firmInc(x); }
+      if (x.owner === f) { base += x.pop * 0.05 * (0.6 + x.ind / 100); tour += x.tour * 0.05 * seasonX(c, month); firm += firmInc(x) + projInc(st, c); }
       else if (x.owner === -1 && x.pact.includes(f)) pact += incomeOf(st, c, month) * 0.15;
     }
     base *= (1 + roleVal(st, f, 'deputy') / 500) * (1 + advBonus(st, f, 'tax') / 100);
@@ -847,8 +849,165 @@
     lure: { label: '誘致合戦に補助金', ap: 1, own: false, note: '誘致合戦で選ばれやすくなる。負けたら戻る' },
     run: { label: '候補を擁立', ap: 2, own: false, note: '首長選挙で当選すれば、この市町村が自陣営に移る' },
     rally: { label: '演説会', ap: 1, own: false, note: `首長選挙の得票 +${RALLY_STEP}` },
-    aid: { label: '災害支援', ap: 1, own: false, note: `関係度 +${AID_REL}・満足度 +${AID_SAT}` }
+    aid: { label: '災害支援', ap: 1, own: false, note: `関係度 +${AID_REL}・満足度 +${AID_SAT}` },
+    build: { label: '大型事業に着工', ap: 2, own: true, note: '完成すると圏域の自陣営の市町村が伸び、毎月の収入も増える' }
   };
+
+  // ---------- 大型事業 ----------
+  // 圏域ごとに1つ。中心の市町村を持ち、圏域に自陣営の市町村が PROJ_TOWNS 以上あれば着工できる（陣営ごとに同時に1つ）。
+  // 完成すると、その圏域の自陣営の市町村の数値が上がり、中心の市町村を持つ陣営に毎月の収入が入る。1回のゲームで1度だけ
+  const PROJECTS = [
+    { id: 'gifu', region: '岐阜', code: '21201', name: '岐阜駅前の再開発', cost: 300, months: 4, fx: { ind: 8, tour: 6 }, inc: 6 },
+    { id: 'seino', region: '西濃', code: '21202', name: '揖斐川・長良川の治水', cost: 240, months: 4, fx: { dis: 25, sat: 6 }, inc: 2 },
+    { id: 'chuno', region: '中濃', code: '21211', name: '東海環状自動車道の全線開通', cost: 320, months: 5, fx: { ind: 10 }, inc: 6 },
+    { id: 'tono', region: '東濃', code: '21206', name: 'リニア新駅の周辺整備', cost: 400, months: 6, fx: { ind: 8, tour: 6 }, pop: 0.02, inc: 8 },
+    { id: 'hida', region: '飛騨', code: '21203', name: '飛騨の広域観光ルート', cost: 260, months: 4, fx: { tour: 12 }, inc: 5 }
+  ];
+  const PROJ_TOWNS = 3;
+  const PROJ_FX = { ind: '産業力', tour: '観光力', sat: '満足度', dis: '防災力' };
+  const projAt = code => PROJECTS.find(p => p.code === code);
+  function projState(st, id) { return (st.proj || {})[id]; }
+  function projOf(st, f) { return PROJECTS.find(p => { const s = projState(st, p.id); return s && !s.done && s.f === f; }); }
+  function projInc(st, code) { const p = projAt(code), s = p && projState(st, p.id); return s && s.done ? p.inc : 0; }
+  function projNeed(p) { return Math.min(PROJ_TOWNS, regionCodes(p.region).length); }
+  function projFx(p) { return Object.entries(p.fx).map(([k, v]) => `${PROJ_FX[k]} +${v}`).join('・') + (p.pop ? `・人口 +${p.pop * 100}％` : ''); }
+  function tickProjects(st, names, res) {
+    for (const p of PROJECTS) {
+      const s = projState(st, p.id);
+      if (!s || s.done) continue;
+      const nm = s.f === 0 ? 'あなたの陣営' : st.factions[s.f].name;
+      if (st.m[p.code].owner !== s.f) {
+        delete st.proj[p.id];
+        addLog(st, `${names[p.code]}が${nm}を離れたため、大型事業「${p.name}」は中止になりました`, s.f === 0 ? 'bad' : 'rival');
+        if (s.f === 0) res.news.push(`${p.name}が中止`);
+        continue;
+      }
+      if (--s.left > 0) continue;
+      st.proj[p.id] = { f: s.f, done: true };
+      for (const c of regionCodes(p.region).filter(c => st.m[c].owner === s.f)) {
+        const x = st.m[c];
+        for (const [k, v] of Object.entries(p.fx)) x[k] = clamp(x[k] + v, 0, 100);
+        if (p.pop) x.pop *= 1 + p.pop;
+      }
+      addLog(st, `大型事業「${p.name}」が完成。${p.region}圏域の${nm}の市町村で${projFx(p)}、${names[p.code]}の収入が毎月+${p.inc}億円`, s.f === 0 ? 'good' : 'rival');
+      if (s.f === 0) res.news.push(`${p.name}が完成`);
+      res.steps.push({ kind: 'event', code: p.code, text: `${p.name}が完成（${nm}）`, tone: s.f === 0 ? 'good' : 'bad' });
+    }
+  }
+
+  // ---------- 圏域ごとの方針（あなたの陣営だけ） ----------
+  // 月末に、方針のコマンドを、その圏域で値の低い自陣営の市町村から POLICY_TOWNS まで、標準の規模で自動で行う。
+  // 行動力は使わない。財源が POLICY_RESERVE を切るときは行わない。今月すでに同じコマンドをした市町村は飛ばす
+  const POLICIES = { ind: { label: '産業', cmd: 'ind', key: 'ind' }, tour: { label: '観光', cmd: 'tour', key: 'tour' }, care: { label: '暮らし', cmd: 'care', key: 'sat' }, dis: { label: '防災', cmd: 'dis', key: 'dis' } };
+  const POLICY_TOWNS = 2, POLICY_RESERVE = 30;
+  function policyTowns(st, r) {
+    const p = POLICIES[(st.policy || {})[r]];
+    if (!p) return [];
+    return regionCodes(r).filter(c => st.m[c].owner === 0 && st.m[c][p.key] < 100 && !usedThisMonth(st, 0, c, p.cmd))
+      .sort((a, b) => st.m[a][p.key] - st.m[b][p.key]).slice(0, POLICY_TOWNS);
+  }
+  function setPolicy(st, r, k) { st.policy = { ...(st.policy || {}), [r]: POLICIES[k] ? k : null }; }
+  function runPolicies(st, names) {
+    const fac = st.factions[0];
+    let stopped = false;
+    for (const r of REGIONS) {
+      const p = POLICIES[(st.policy || {})[r]];
+      if (!p) continue;
+      const done = [];
+      let paid = 0;
+      for (const c of policyTowns(st, r)) {
+        const cost = cmdCost(st, p.cmd, c, 1, 0);
+        if (fac.money - cost < POLICY_RESERVE) { stopped = true; break; }
+        fac.money -= cost; paid += cost; done.push(c);
+        const x = st.m[c];
+        x[p.key] = clamp(x[p.key] + gainOf(x[p.key], cmdEffect(st, 0, p.cmd, 1)), 0, 100);
+      }
+      if (done.length) addLog(st, `方針（${r}圏域・${p.label}）：${done.map(c => names[c]).join('・')}で${CMDS[p.cmd].label}（${paid}億円）`, 'good');
+    }
+    if (stopped) addLog(st, `財源が${POLICY_RESERVE}億円を切るため、圏域の方針の内政を一部止めました`, 'bad');
+  }
+
+  // ---------- ライバルの包囲網 ----------
+  // あなたの陣営が県の人口の SIEGE_ON 以上を持つと、ライバル同士が手を組む。SIEGE_OFF を下回るか、ライバルが1陣営になると解ける。
+  // 包囲網のあいだ、ライバルは行動力+1、ライバル同士では争わず、あなたの陣営の隣の市町村との関係度が毎月 SIEGE_REL ずつ上がる
+  const SIEGE_ON = 0.4, SIEGE_OFF = 0.33, SIEGE_REL = 2;
+  function popShare(st, f) { let all = 0, mine = 0; for (const c in st.m) { all += st.m[c].pop; if (st.m[c].owner === f) mine += st.m[c].pop; } return all ? mine / all : 0; }
+  function tickSiege(st, adj, names, res) {
+    const share = popShare(st, 0), rivals = st.factions.filter(x => x.ai && x.alive);
+    if (!st.siege && share >= SIEGE_ON && rivals.length >= 2) {
+      st.siege = true;
+      addLog(st, `あなたの陣営が県の人口の${Math.round(share * 100)}％を持ったため、${rivals.map(x => x.name).join('・')}が包囲網を結成しました。ライバル同士の争いをやめ、あなたの陣営を集中して狙ってきます`, 'bad');
+      res.news.push('ライバルが包囲網を結成');
+      res.siege = true;
+      res.steps.push({ kind: 'event', code: st.factions[0].capital, text: 'ライバル陣営が包囲網を結成', tone: 'bad' });
+    } else if (st.siege && (share < SIEGE_OFF || rivals.length < 2)) {
+      st.siege = false;
+      addLog(st, 'ライバルの包囲網が解けました', 'good');
+      res.news.push('包囲網が解ける');
+    }
+    if (!st.siege) return;
+    for (const x of rivals) for (const c of owned(st, 0)) if (adjacentTo(st, adj, c, x.id)) st.rel[x.id][c] = clamp(st.rel[x.id][c] + SIEGE_REL, 0, 100);
+  }
+
+  // ---------- 選択肢のある出来事（あなたの陣営だけ） ----------
+  // ときどき、自陣営の市町村で、どちらかを選ぶ出来事が起きる。財源の増減は、市町村が多いほど大きくなる
+  const CHOICE_P = 0.2, CHOICE_GAP = 4;
+  const CHOICES = {
+    office: { topic: '庁舎', pick: (st, c) => st.m[c].mergedAt !== undefined && st.turn - st.m[c].mergedAt <= 3 && st.factions[0].capital !== c,
+      title: '庁舎をどうする？', lead: n => `合併した${n}の役所の仕事を、本庁にまとめる話が出ています。`,
+      opts: [{ label: '支所として残す', fx: { money: -25, sat: 12 } }, { label: '本庁にまとめる', fx: { money: 15, sat: -8 } }] },
+    rail: { topic: 'ローカル線', pick: (st, c) => st.m[c].pop < 40 && st.factions[0].capital !== c,
+      title: 'ローカル線をどうする？', lead: n => `${n}を走るローカル線の赤字が続き、残すかどうかが議論になっています。`,
+      opts: [{ label: '支援して残す', fx: { money: -30, sat: 6, near: 3 } }, { label: 'バスに切り替える', fx: { money: 15, sat: -10 } }] },
+    mall: { topic: '大型商業施設', pick: (st, c) => st.m[c].ind >= 50,
+      title: '大型商業施設の進出', lead: n => `${n}の郊外に、大型商業施設の進出が打診されています。`,
+      opts: [{ label: '受け入れる', fx: { ind: 10, near: -4 } }, { label: '商店街を守る', fx: { sat: 4, tour: 4 } }] },
+    fest: { topic: '祭りの予算', pick: (st, c) => st.m[c].tour >= 40,
+      title: '祭りの予算', lead: n => `${n}の祭りの担い手が減り、予算の見直しが求められています。`,
+      opts: [{ label: '予算を増やす', fx: { money: -20, tour: 8, sat: 4 } }, { label: '規模を縮める', fx: { money: 10, sat: -5 } }] },
+    move: { topic: '移住の支援', pick: (st, c) => st.m[c].sat < 58,
+      title: '移住の支援', lead: n => `${n}の人口減少を止めるため、移住者向けの住宅補助が提案されています。`,
+      opts: [{ label: '住宅補助を出す', fx: { money: -35, pop: 0.02, sat: 5 } }, { label: '空き家の紹介にとどめる', fx: { money: -5, sat: 1 } }] },
+    waste: { topic: '処分場の計画', pick: (st, c) => st.m[c].pop < 30 && st.factions[0].capital !== c,
+      title: '処分場の計画', lead: n => `${n}の山あいに、広域のごみ処分場をつくる計画が持ち込まれました。`,
+      opts: [{ label: '受け入れる', fx: { money: 40, sat: -12 } }, { label: '断る', fx: { sat: 3 } }] }
+  };
+  const CHOICE_FX = { ind: '産業力', tour: '観光力', sat: '満足度' };
+  const choiceMoney = (st, v) => Math.round(v * (1 + owned(st, 0).length / 8));
+  function choiceNote(st, fx) {
+    const out = [];
+    if (fx.money) out.push(`財源 ${fx.money > 0 ? '+' : '−'}${Math.abs(choiceMoney(st, fx.money))}億円`);
+    for (const k in CHOICE_FX) if (fx[k]) out.push(`${CHOICE_FX[k]} ${fx[k] > 0 ? '+' : '−'}${Math.abs(fx[k])}`);
+    if (fx.pop) out.push(`人口 +${fx.pop * 100}％`);
+    if (fx.near) out.push(`隣の自陣営の市町村の満足度 ${fx.near > 0 ? '+' : '−'}${Math.abs(fx.near)}`);
+    return out.join('・') || '変化なし';
+  }
+  function pickChoice(st) {
+    const ids = Object.keys(CHOICES).map(id => [id, rnd(st)]).sort((a, b) => a[1] - b[1]).map(a => a[0]);
+    for (const id of ids) {
+      const cs = owned(st, 0).filter(c => CHOICES[id].pick(st, c));
+      if (cs.length) return { id, code: cs[Math.floor(rnd(st) * cs.length)] };
+    }
+    return null;
+  }
+  function choiceView(st, names) {
+    const ch = st.choice; if (!ch) return null;
+    const d = CHOICES[ch.id], n = names[ch.code];
+    return { code: ch.code, title: `${n}：${d.title}`, lead: d.lead(n), opts: d.opts.map(o => ({ label: o.label, note: choiceNote(st, o.fx) })) };
+  }
+  function applyChoice(st, adj, names, i) {
+    const ch = st.choice; if (!ch) return '';
+    const d = CHOICES[ch.id], o = d.opts[i], x = st.m[ch.code], fx = o.fx;
+    st.choice = null;
+    if (x.owner !== 0) return '';
+    if (fx.money) st.factions[0].money += choiceMoney(st, fx.money);
+    for (const k in CHOICE_FX) if (fx[k]) x[k] = clamp(x[k] + fx[k], 0, 100);
+    if (fx.pop) x.pop *= 1 + fx.pop;
+    if (fx.near) for (const c of adj[ch.code]) if (st.m[c].owner === 0) st.m[c].sat = clamp(st.m[c].sat + fx.near, 0, 100);
+    const text = `${names[ch.code]}の${d.topic}は「${o.label}」に決めました（${choiceNote(st, fx)}）`;
+    addLog(st, text, 'info');
+    return text;
+  }
 
   // 企業誘致の成功率。不調でも企業とのつながりが残り、次は成功しやすくなる（重ねて2回分まで）
   const INVITE_FAIL_IND = 4, INVITE_LEAD = 0.2, INVITE_LEAD_MAX = 0.4;
@@ -862,6 +1021,13 @@
     { label: '特大', cost: 5, eff: 2.8 }
   ];
   const SCALABLE = ['ind', 'tour', 'care', 'dis', 'visit'];
+  // 同じ市町村には、同じコマンドを月1回まで（特大の連発で一気に上げないように）
+  const ONCE = [...SCALABLE, 'invite'];
+  function usedThisMonth(st, f, code, cmd) { return !!(st.used && st.used[`${f}:${code}:${cmd}`]); }
+  function markUsed(st, f, code, cmd) { st.used = st.used || {}; st.used[`${f}:${code}:${cmd}`] = true; }
+  // 上がりにくさ：SOFT を超えた分は、効果が半分になる（関係度・満足度・産業力・観光力・防災力）
+  const SOFT = 70;
+  function gainOf(cur, e) { if (e <= 0) return e; const a = clamp(SOFT - cur, 0, e); return Math.round(a + (e - a) / 2); }
   function scaleOf(cmd, scale) { return SCALABLE.includes(cmd) ? SCALES[scale === undefined ? 1 : scale] : SCALES[1]; }
   function cmdEffect(st, f, cmd, scale) {
     const pb = Math.floor(roleVal(st, f, 'planning') / 25) + advBonus(st, f, 'plan'), nb = Math.floor(roleVal(st, f, 'nego') / 15);
@@ -887,6 +1053,7 @@
       case 'lure': return st.lure ? st.lure.step : 0;
       case 'run': return Math.round(6 + p * 0.08);
       case 'rally': return Math.round(3 + p * 0.04);
+      case 'build': return projAt(code) ? projAt(code).cost : 0;
     }
     return 0;
   }
@@ -909,6 +1076,7 @@
   function canDoBase(st, adj, f, cmd, code, scale) {
     const x = st.m[code]; const def = CMDS[cmd];
     if (st.over) return { ok: false, reason: 'ゲームは終了しています' };
+    if (ONCE.includes(cmd) && usedThisMonth(st, f, code, cmd)) return { ok: false, reason: `${def.label}は、この市町村では今月もう行いました（同じ市町村には月1回まで）` };
     const cost = cmdCost(st, cmd, code, scale, f);
     if (cmd === 'lure') {
       const L = st.lure;
@@ -930,6 +1098,18 @@
       const r = x.race;
       if (!r || (r.ch !== f && r.inc !== f)) return { ok: false, reason: 'この市町村の首長選挙に候補を立てていません' };
       if (r.rally[f] >= RALLY_MAX) return { ok: false, reason: `演説会は${RALLY_MAX}回までです` };
+      return { ok: true, cost };
+    }
+    if (cmd === 'build') {
+      const p = projAt(code), s = p && projState(st, p.id);
+      if (!p) return { ok: false, reason: 'この市町村には大型事業の計画がありません' };
+      if (x.owner !== f) return { ok: false, reason: '自陣営の市町村だけで着工できます' };
+      if (s && s.done) return { ok: false, reason: '完成しています' };
+      if (s) return { ok: false, reason: `工事中です（あと${s.left}か月）` };
+      const mine = regionCodes(p.region).filter(c => st.m[c].owner === f).length;
+      if (mine < projNeed(p)) return { ok: false, reason: `${p.region}圏域に自陣営の市町村が${projNeed(p)}つ以上必要です（いま${mine}）` };
+      const busy = projOf(st, f);
+      if (busy) return { ok: false, reason: `大型事業は同時に1つまでです（${busy.name}を工事中）` };
       return { ok: true, cost };
     }
     if (cmd === 'keep') {
@@ -1004,11 +1184,12 @@
     fac.money -= cost;
     const e = cmdEffect(st, f, cmd, scale), sl = SCALABLE.includes(cmd) && scale !== undefined && scale !== 1 ? `・${SCALES[scale].label}` : '';
     const n = names[code]; const who = f === 0 ? '' : fac.name + 'が';
+    if (ONCE.includes(cmd)) markUsed(st, f, code, cmd);
     switch (cmd) {
-      case 'ind': x.ind = clamp(x.ind + e, 0, 100); return `${who}${n}で産業振興（産業力 ${Math.round(x.ind)}${sl}）`;
-      case 'tour': x.tour = clamp(x.tour + e, 0, 100); return `${who}${n}の観光PR（観光力 ${Math.round(x.tour)}${sl}）`;
-      case 'care': x.sat = clamp(x.sat + e, 0, 100); return `${who}${n}で子育て支援（満足度 ${Math.round(x.sat)}${sl}）`;
-      case 'dis': x.dis = clamp(x.dis + e, 0, 100); return `${who}${n}の防災対策（防災力 ${x.dis}${sl}）`;
+      case 'ind': x.ind = clamp(x.ind + gainOf(x.ind, e), 0, 100); return `${who}${n}で産業振興（産業力 ${Math.round(x.ind)}${sl}）`;
+      case 'tour': x.tour = clamp(x.tour + gainOf(x.tour, e), 0, 100); return `${who}${n}の観光PR（観光力 ${Math.round(x.tour)}${sl}）`;
+      case 'care': x.sat = clamp(x.sat + gainOf(x.sat, e), 0, 100); return `${who}${n}で子育て支援（満足度 ${Math.round(x.sat)}${sl}）`;
+      case 'dis': x.dis = clamp(x.dis + gainOf(x.dis, e), 0, 100); return `${who}${n}の防災対策（防災力 ${x.dis}${sl}）`;
       case 'invite':
         if (rnd(st) < inviteChance(st, code)) { x.inviteLead = 0; x.ind = clamp(x.ind + 12, 0, 100); x.pop += 1 + x.pop * 0.01; return `${who}${n}への企業誘致に成功（産業力 ${Math.round(x.ind)}）`; }
         x.ind = clamp(x.ind + INVITE_FAIL_IND, 0, 100); x.inviteLead = Math.min(INVITE_LEAD_MAX, (x.inviteLead || 0) + INVITE_LEAD);
@@ -1017,7 +1198,8 @@
         st.rel[f][code] = clamp(st.rel[f][code] + AID_REL, 0, 100); x.sat = clamp(x.sat + AID_SAT, 0, 100); x.aided = { ...x.aided, [f]: x.hurt };
         return `${who}${n}に${x.hurtKind || '災害'}の災害支援（関係度 ${Math.round(st.rel[f][code])}）`;
       }
-      case 'visit': st.rel[f][code] = clamp(st.rel[f][code] + e, 0, 100); return `${who}${n}と交流事業（関係度 ${Math.round(st.rel[f][code])}${sl}）`;
+      case 'build': { const p = projAt(code); st.proj = { ...(st.proj || {}), [p.id]: { f, left: p.months } }; return `${who}${n}で大型事業「${p.name}」に着工（${p.months}か月で完成）`; }
+      case 'visit': st.rel[f][code] = clamp(st.rel[f][code] + gainOf(st.rel[f][code], e), 0, 100); return `${who}${n}と交流事業（関係度 ${Math.round(st.rel[f][code])}${sl}）`;
       case 'pact': x.pact.push(f); addFeat(st, f, 'pact'); st.rel[f][code] = clamp(st.rel[f][code] + 5, 0, 100); return `${who}${n}と連携協定を締結`;
       case 'talk': x.talk = { f, left: 3 }; return `${who}${n}に合併協議を申し入れ`;
       case 'counter': {
@@ -1046,7 +1228,9 @@
 
   // AI 1陣営ぶんの行動
   function aiAct(st, adj, names, f) {
-    let ap = apMax(st, f);
+    let ap = apMax(st, f) + (st.siege ? 1 : 0);
+    // 包囲網のあいだは、ライバル同士では争わない（狙うのは、あなたの陣営と独立の市町村）
+    const foe = c => !st.siege || st.m[c].owner <= 0;
     const fac = st.factions[f];
     const out = [];
     const aiScale = () => fac.money > 600 ? 3 : fac.money > 220 ? 2 : 1;
@@ -1065,6 +1249,9 @@
     const apRef = { ap };
     for (const t of aiStaff(st, adj, names, f, apRef)) out.push(t);
     ap = apRef.ap;
+    // 大型事業：着工できて、お金に余裕があれば、ときどき着工する
+    const pj = PROJECTS.find(p => st.m[p.code].owner === f && canDo(st, adj, f, 'build', p.code, ap).ok && fac.money - p.cost > 150);
+    if (pj && rnd(st) < 0.3) tryDo('build', pj.code);
     // 誘致合戦：負けていて、見合う額のうちは補助金を上乗せする（決まる月は動かない）
     const lu = st.lure, site = lureSite(st, adj, f);
     if (lu && lu.left >= 2 && site) {
@@ -1084,7 +1271,7 @@
       if (mine < 56 && fac.money > cmdCost(st, 'rally', c, undefined, f) * 2 && rnd(st) < AI_RALLY) tryDo('rally', c);
     }
     if (ap >= CMDS.run.ap && rnd(st) < 0.5) {
-      const cand = Object.keys(st.m).filter(c => st.m[c].owner >= 0 && st.m[c].owner !== f && electLeft(st, c) < ELECT_WINDOW && electExpect(st, f, c) >= AI_ELECT
+      const cand = Object.keys(st.m).filter(c => st.m[c].owner >= 0 && st.m[c].owner !== f && foe(c) && electLeft(st, c) < ELECT_WINDOW && electExpect(st, f, c) >= AI_ELECT
         && fac.money > cmdCost(st, 'run', c, undefined, f) * 3 && canDo(st, adj, f, 'run', c, ap).ok).sort((a, b) => electExpect(st, f, b) - electExpect(st, f, a));
       if (cand.length) tryDo('run', cand[0]);
     }
@@ -1095,18 +1282,19 @@
       if (rnd(st) < AI_IDLE) { ap--; continue; } // ときどき様子見
       const near = Object.keys(st.m).filter(c => st.m[c].owner !== f && adjacentTo(st, adj, c, f));
       near.sort((a, b) => st.rel[f][b] - st.rel[f][a]);
-      const border = near.filter(c => !st.m[c].talk);
+      const border = near.filter(c => !st.m[c].talk && foe(c));
+      if (st.siege) border.sort((a, b) => (st.m[b].owner === 0) - (st.m[a].owner === 0));
       // 合併協議の準備ができていて、お金だけ足りないときは貯める
       const saving = border.some(c => { const r = canDo(st, adj, f, 'talk', c, 99); return !r.ok && r.reason.startsWith('財源') && voteExpect(st, f, c) >= AI_VOTE; });
       let done = false;
       // 災害の予報が出ていれば、ときどき備える（予報の範囲で防災力の低い、人口の多い市町村から）
       if (!saving && st.fc && fac.money > 30 && rnd(st) < 0.5) {
-        const area = disArea(st.fc), t = owned(st, f).filter(c => area.includes(c) && st.m[c].dis < 60).sort((a, b) => st.m[b].pop - st.m[a].pop)[0];
+        const area = disArea(st.fc), t = owned(st, f).filter(c => area.includes(c) && st.m[c].dis < 60 && !usedThisMonth(st, f, c, 'dis')).sort((a, b) => st.m[b].pop - st.m[a].pop)[0];
         if (t && tryDo('dis', t)) continue;
       }
       // ときどき、いちばん大きな市町村の魅力を上げる
       if (!saving && fac.money > 40 && rnd(st) < 0.2) {
-        const big = owned(st, f).sort((a, b) => st.m[b].pop - st.m[a].pop)[0];
+        const big = owned(st, f).sort((a, b) => st.m[b].pop - st.m[a].pop).find(c => !usedThisMonth(st, f, c, 'ind') || !usedThisMonth(st, f, c, 'tour'));
         if (big && tryDo(st.m[big].ind <= st.m[big].tour + 15 ? 'ind' : 'tour', big)) continue;
       }
       if (fac.money > 0) {
@@ -1120,9 +1308,10 @@
         const own = owned(st, f);
         const weak = own.filter(c => { const rs = rivalSat(c); return rs && !(c === fac.capital && own.length > 3) && (st.m[c].sat < 47 || rs - st.m[c].sat >= 5); })
           .sort((a, b) => (b === fac.capital) - (a === fac.capital) || st.m[a].sat - st.m[b].sat);
-        if (weak.length && rnd(st) < AI_GUARD && tryDo('care', weak[0])) continue;
+        const weak1 = weak.find(c => !usedThisMonth(st, f, c, 'care'));
+        if (weak1 && rnd(st) < AI_GUARD && tryDo('care', weak1)) continue;
         // 独立の動きがあれば、満足度を上げて収める
-        const rebel = own.find(c => st.m[c].indep);
+        const rebel = own.find(c => st.m[c].indep && !usedThisMonth(st, f, c, 'care'));
         if (rebel && rnd(st) < 0.8 && tryDo('care', rebel)) continue;
         // 競り合いで負けていれば上乗せ
         for (const c of near) {
@@ -1132,20 +1321,22 @@
             if (t.bids[f] <= t.bids[other] && fac.money > cmdCost(st, 'raise', c, undefined, f) * 2 && rnd(st) < 0.75 && tryDo('raise', c)) { done = true; break; }
           }
         }
-        if (!done) for (const c of near) { const t = st.m[c].talk; if (t && t.rival === undefined && t.f !== f && rnd(st) < 0.5 && tryDo('counter', c)) { done = true; break; } }
+        if (!done) for (const c of near) { const t = st.m[c].talk; if (t && t.rival === undefined && t.f !== f && (!st.siege || t.f === 0) && rnd(st) < 0.5 && tryDo('counter', c)) { done = true; break; } }
         // 合併協議は、賛成の見込みが立つ相手にだけ申し入れる
         if (!done) for (const c of border) { if (voteExpect(st, f, c) >= AI_VOTE && tryDo('talk', c)) { done = true; break; } }
         if (!done) for (const c of near) { if (st.m[c].owner === -1 && tryDo('pact', c)) { done = true; break; } }
         if (!done && fac.money > 12) {
           // 自陣営の協議で見込みが低ければ、まずそこと交流する
-          const t = near.find(c => st.m[c].talk && st.m[c].talk.f === f && voteExpect(st, f, c) < 60 && st.rel[f][c] < 100)
-            || near.find(c => st.m[c].owner === -1 && st.rel[f][c] < 95) || near.find(c => st.m[c].owner !== -1 && st.rel[f][c] < 80);
+          const free = c => !usedThisMonth(st, f, c, 'visit');
+          const t = near.find(c => free(c) && st.m[c].talk && st.m[c].talk.f === f && voteExpect(st, f, c) < 60 && st.rel[f][c] < 100)
+            || near.find(c => free(c) && st.m[c].owner === -1 && st.rel[f][c] < 95) || near.find(c => free(c) && st.m[c].owner !== -1 && foe(c) && st.rel[f][c] < 80);
           if (t && tryDo('visit', t)) done = true;
         }
       }
       if (!done) {
-        const mine = owned(st, f).sort((a, b) => st.m[a].sat - st.m[b].sat);
-        const big = owned(st, f).sort((a, b) => st.m[b].pop - st.m[a].pop);
+        const careFree = c => !usedThisMonth(st, f, c, 'care');
+        const mine = owned(st, f).filter(careFree).sort((a, b) => st.m[a].sat - st.m[b].sat);
+        const big = owned(st, f).filter(careFree).sort((a, b) => st.m[b].pop - st.m[a].pop);
         if (mine.length && st.m[mine[0]].sat < 48 && tryDo('care', mine[0])) done = true;
         else if (fac.money > 60 && big.length && st.m[big[0]].sat < 66 && tryDo('care', big[0])) done = true;
         else if (!saving && fac.money > 80 && tryDo('invite', fac.capital)) done = true;
@@ -1212,6 +1403,8 @@
     ensureStaff(st);
     ensureAdv(st);
     ensureElect(st);
+    // 圏域の方針で、自陣営の内政を自動で行う
+    runPolicies(st, names);
     // ライバルの行動
     for (const fac of st.factions) {
       if (!fac.ai || !fac.alive) continue;
@@ -1252,7 +1445,7 @@
       const fac = st.factions[f];
       if (v.pass) {
         addFeat(st, f, 'merge'); if (prev >= 0) addFeat(st, f, 'steal');
-        x.owner = f; x.pact = []; x.sat = clamp(x.sat - 8, 0, 100);
+        x.owner = f; x.pact = []; x.sat = clamp(x.sat - 8, 0, 100); x.mergedAt = st.turn;
         for (const k of owned(st, f)) if (k !== c) st.m[k].sat = clamp(st.m[k].sat - 1, 0, 100);
         st.rel[f][c] = 60;
         const joined = staffOnMerge(st, names, c, f, prev);
@@ -1277,6 +1470,12 @@
     const d = dateOf(st.turn);
     // 季節・ランダムのイベント
     events(st, names, d.month, res);
+    tickProjects(st, names, res);
+    tickSiege(st, adj, names, res);
+    if (!st.choice && st.turn >= 4 && !(st.choiceNext > st.turn) && rnd(st) < CHOICE_P) {
+      st.choice = pickChoice(st);
+      if (st.choice) { st.choiceNext = st.turn + CHOICE_GAP; res.choice = true; }
+    }
     if (!st.lure && st.turn >= (st.lureNext || 3) && rnd(st) < LURE_P) startLure(st, adj, names, res);
     // 収入と住民の変化
     for (const fac of st.factions) {
@@ -1335,6 +1534,7 @@
       const cs = Object.keys(st.m).filter(c => INFO[c][0] === r);
       if (cs.every(c => st.m[c].owner === 0)) { st.regionsDone.push(r); addLog(st, `${r}圏域をすべて自陣営にしました`, 'good'); res.news.push(`${r}圏域を制覇`); }
     }
+    st.used = {};
     st.ap = apMax(st, 0);
     return res;
   }
@@ -1453,6 +1653,8 @@
 
 
   const api = { seasonTags, FLOW_SAT, INDEP_SAT, CALM_SAT, INDEP_MONTHS, outflow, DISASTERS, DIS_SAT, AID_REL, AID_SAT, AID_MONTHS, disArea, disLabel, aidable, INVITE_FAIL_IND, INVITE_LEAD, inviteChance, ELECT_TERM, ELECT_WINDOW, RALLY_STEP, RALLY_MAX, ensureElect, electLeft, electExpect, electMine, raceDue, BATTLE_MIN, BATTLE_MAX, battleExpect, battlesDue, setBattle, JOIN_TOWNS, JOIN_RATIO, JOIN_SAT, AI_GUARD, voteExpect, AI_IDLE, FIRMS, LURE_MONTHS, LURE_PT, LURE_MAX, firmInc, sitePoint, lureSite, lureBid, lureScore, lureParts, lureRows, ADVISORS, ADV_BY_ID, ADV_MONTHS, ADV_COOL, ADV_SLOT2, ensureAdv, advCond, advMeasure, advOf, advFx, advBonus, advMax, advUsed, advHolder, canInviteAdv, inviteAdv, advise, advVote, regionLength, talksMax, APPEAL_TALKS, appeal, appealOf, appealRel, appealVote, INFO, REGIONS, MODES, regionCodes, goalOf, continueToUnify, CMDS, dateOf, difficultyOf, newGame, owned, apMax, totalPop, avgSat, incomeOf,
-    factionIncome, grantOf, tagInfo, upkeep, cmdCost, cmdEffect, SCALES, SCALABLE, gradeOf, GRADE_PAY, faceOf, SCOUT, canScout, scout, ROLES, ABIL, ensureStaff, staffOf, staffMax, abil, roleVal, hireCandidates, hireCost, canHire, hire, dismiss, assignRole, autoAssign, staffUpkeep, aiStaff, inTalk, BID_MAX, KEEP_MAX, KEEP_STEP, canDo, doCmd, endTurn, adjacentTo, talksOf, seasonX, clamp };
+    factionIncome, grantOf, tagInfo, upkeep, cmdCost, cmdEffect, SCALES, SCALABLE, gradeOf, GRADE_PAY, faceOf, SCOUT, canScout, scout, ROLES, ABIL, ensureStaff, staffOf, staffMax, abil, roleVal, hireCandidates, hireCost, canHire, hire, dismiss, assignRole, autoAssign, staffUpkeep, aiStaff, inTalk, BID_MAX, KEEP_MAX, KEEP_STEP, canDo, doCmd, endTurn, adjacentTo, talksOf, seasonX, clamp,
+    ONCE, SOFT, gainOf, usedThisMonth, AP_CAP, PROJECTS, PROJ_TOWNS, projAt, projState, projOf, projNeed, projFx, POLICIES, POLICY_TOWNS, POLICY_RESERVE, policyTowns, setPolicy,
+    SIEGE_ON, SIEGE_OFF, SIEGE_REL, popShare, choiceView, applyChoice };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.GameLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);
