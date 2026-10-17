@@ -593,10 +593,10 @@ function policyHtml() {
   const opts = [['', 'なし'], ...Object.entries(L.POLICIES).map(([k, p]) => [k, p.label])];
   const rows = regs.map(r => {
     const cur = (S.policy || {})[r] || '', towns = L.policyTowns(S, r);
-    const plan = cur && towns.length ? `今月末：${towns.map(c => NAMES[c]).join('・')}で${L.CMDS[L.POLICIES[cur].cmd].label}（${towns.reduce((a, c) => a + L.cmdCost(S, L.POLICIES[cur].cmd, c, 1, 0), 0)}億円）` : cur ? '今月末：対象の市町村はありません' : '';
+    const plan = cur && !L.policyReady(S, r) ? `${r}圏域に自陣営の市町村が${Math.min(L.POLICY_MIN, L.regionCodes(r).length)}つ以上になると動きます` : cur && towns.length ? `今月末：${towns.map(c => NAMES[c]).join('・')}で${L.CMDS[L.POLICIES[cur].cmd].label}（${towns.reduce((a, c) => a + L.cmdCost(S, L.POLICIES[cur].cmd, c, 1, 0), 0)}億円）` : cur ? '今月末：対象の市町村はありません' : '';
     return `<div class="pol"><span class="pol-r">${r}</span><div class="segs" role="group" aria-label="${r}圏域の方針">${opts.map(([k, lb]) => `<button data-region="${r}" data-pol="${k}" aria-pressed="${cur === k}">${lb}</button>`).join('')}</div>${plan ? `<small>${plan}</small>` : ''}</div>`;
   }).join('');
-  return `<div class="policy"><div class="h5">圏域の方針</div><p class="note">選んだ内政を、月末にその圏域の値の低い市町村から${L.POLICY_TOWNS}つまで、標準の規模で自動で行います。行動力は使いません（財源が${L.POLICY_RESERVE}億円を切ると止まります）</p>${rows}</div>`;
+  return `<div class="policy"><div class="h5">圏域の方針</div><p class="note">選んだ内政を、月末にその圏域の値の低い市町村から${L.POLICY_TOWNS}つまで、標準の規模で自動で行います。行動力は使いません。圏域に自陣営の市町村が${L.POLICY_MIN}つ以上あるときに動き、財源が${L.POLICY_RESERVE}億円を切ると止まります</p>${rows}</div>`;
 }
 // 自陣営と隣の市町村の一覧。地図では押しにくい小さな町（北方町・岐南町など）もここから選べる
 function townsHtml() {
@@ -1308,7 +1308,7 @@ const GUIDE = [
   ['内政の進め方', '月1回まで・上がりにくさ・圏域の方針', [
     '同じ市町村には、同じ内政と交流事業を<b>月1回まで</b>（ほかの市町村なら同じ月にできる）',
     `関係度・満足度・産業力・観光力・防災力は、${L.SOFT}を超えた分は効果が<b>半分</b>になる`,
-    `<b>圏域の方針</b>（陣営の画面）を選ぶと、月末にその圏域の値の低い市町村から${L.POLICY_TOWNS}つまで、標準の規模で内政を自動で行う。行動力は使わない`,
+    `<b>圏域の方針</b>（陣営の画面）を選ぶと、月末にその圏域の値の低い市町村から${L.POLICY_TOWNS}つまで、標準の規模で内政を自動で行う。行動力は使わない。その圏域に自陣営の市町村が${L.POLICY_MIN}つ以上あるときだけ動く`,
     `行動力は市町村が増えるほど増えるが、${L.AP_CAP}まで`]],
   ['大型事業', '圏域に1つ。完成すると圏域がまとめて伸びる', [
     `各圏域に1つずつ（${L.PROJECTS.map(p => p.name).join('・')}）`,

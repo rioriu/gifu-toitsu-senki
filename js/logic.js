@@ -899,10 +899,12 @@
   // 月末に、方針のコマンドを、その圏域で値の低い自陣営の市町村から POLICY_TOWNS まで、標準の規模で自動で行う。
   // 行動力は使わない。財源が POLICY_RESERVE を切るときは行わない。今月すでに同じコマンドをした市町村は飛ばす
   const POLICIES = { ind: { label: '産業', cmd: 'ind', key: 'ind' }, tour: { label: '観光', cmd: 'tour', key: 'tour' }, care: { label: '暮らし', cmd: 'care', key: 'sat' }, dis: { label: '防災', cmd: 'dis', key: 'dis' } };
-  const POLICY_TOWNS = 2, POLICY_RESERVE = 30;
+  // 方針は、その圏域に自陣営の市町村が POLICY_MIN 以上あるときだけ動く（序盤の小さな陣営には効かせない）
+  const POLICY_TOWNS = 2, POLICY_RESERVE = 30, POLICY_MIN = 3;
+  function policyReady(st, r) { return regionCodes(r).filter(c => st.m[c].owner === 0).length >= Math.min(POLICY_MIN, regionCodes(r).length); }
   function policyTowns(st, r) {
     const p = POLICIES[(st.policy || {})[r]];
-    if (!p) return [];
+    if (!p || !policyReady(st, r)) return [];
     return regionCodes(r).filter(c => st.m[c].owner === 0 && st.m[c][p.key] < 100 && !usedThisMonth(st, 0, c, p.cmd))
       .sort((a, b) => st.m[a][p.key] - st.m[b][p.key]).slice(0, POLICY_TOWNS);
   }
@@ -1654,7 +1656,7 @@
 
   const api = { seasonTags, FLOW_SAT, INDEP_SAT, CALM_SAT, INDEP_MONTHS, outflow, DISASTERS, DIS_SAT, AID_REL, AID_SAT, AID_MONTHS, disArea, disLabel, aidable, INVITE_FAIL_IND, INVITE_LEAD, inviteChance, ELECT_TERM, ELECT_WINDOW, RALLY_STEP, RALLY_MAX, ensureElect, electLeft, electExpect, electMine, raceDue, BATTLE_MIN, BATTLE_MAX, battleExpect, battlesDue, setBattle, JOIN_TOWNS, JOIN_RATIO, JOIN_SAT, AI_GUARD, voteExpect, AI_IDLE, FIRMS, LURE_MONTHS, LURE_PT, LURE_MAX, firmInc, sitePoint, lureSite, lureBid, lureScore, lureParts, lureRows, ADVISORS, ADV_BY_ID, ADV_MONTHS, ADV_COOL, ADV_SLOT2, ensureAdv, advCond, advMeasure, advOf, advFx, advBonus, advMax, advUsed, advHolder, canInviteAdv, inviteAdv, advise, advVote, regionLength, talksMax, APPEAL_TALKS, appeal, appealOf, appealRel, appealVote, INFO, REGIONS, MODES, regionCodes, goalOf, continueToUnify, CMDS, dateOf, difficultyOf, newGame, owned, apMax, totalPop, avgSat, incomeOf,
     factionIncome, grantOf, tagInfo, upkeep, cmdCost, cmdEffect, SCALES, SCALABLE, gradeOf, GRADE_PAY, faceOf, SCOUT, canScout, scout, ROLES, ABIL, ensureStaff, staffOf, staffMax, abil, roleVal, hireCandidates, hireCost, canHire, hire, dismiss, assignRole, autoAssign, staffUpkeep, aiStaff, inTalk, BID_MAX, KEEP_MAX, KEEP_STEP, canDo, doCmd, endTurn, adjacentTo, talksOf, seasonX, clamp,
-    ONCE, SOFT, gainOf, usedThisMonth, AP_CAP, PROJECTS, PROJ_TOWNS, projAt, projState, projOf, projNeed, projFx, POLICIES, POLICY_TOWNS, POLICY_RESERVE, policyTowns, setPolicy,
+    ONCE, SOFT, gainOf, usedThisMonth, AP_CAP, PROJECTS, PROJ_TOWNS, projAt, projState, projOf, projNeed, projFx, POLICIES, POLICY_TOWNS, POLICY_RESERVE, POLICY_MIN, policyReady, policyTowns, setPolicy,
     SIEGE_ON, SIEGE_OFF, SIEGE_REL, popShare, choiceView, applyChoice };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.GameLogic = api;
 })(typeof window !== 'undefined' ? window : globalThis);
