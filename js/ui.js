@@ -467,20 +467,19 @@ function renderSheet() {
   }
   if (!mine && !L.adjacentTo(S, ADJ, c, 0)) notes += `<p class="note">あなたの陣営と隣り合っていないため、外交はまだできません。</p>`;
   const t = x.talk;
-  const third = !t ? 'talk' : (t.rival !== undefined ? (L.inTalk(t, 0) ? 'raise' : 'talk') : (t.f !== 0 ? 'counter' : 'talk'));
-  const attacked = mine && t && !L.inTalk(t, 0);
-  const cmds = mine ? (attacked ? ['keep', 'care', 'ind', 'tour', 'dis', 'invite'] : ['ind', 'tour', 'care', 'dis', 'invite']) : ['visit', 'pact', third];
-  if (mine && S.lure && L.lureSite(S, ADJ, 0) === c) cmds.unshift('lure');
-  if (!mine && L.aidable(S, c) && L.adjacentTo(S, ADJ, c, 0)) cmds.unshift('aid');
-  // 予報が出ていれば防災対策を、独立の動きがあれば子育て支援を、いちばん上に出す
-  if (mine && fcHere) { cmds.splice(cmds.indexOf('dis'), 1); cmds.unshift('dis'); }
-  if (mine && x.indep && cmds.includes('care')) { cmds.splice(cmds.indexOf('care'), 1); cmds.unshift('care'); }
-  // 首長選挙：関わっていれば演説会。ほかの陣営の市町村は、選挙の時期なら候補を立てられる（協定の代わりに出す）
-  if (race && (race.ch === 0 || race.inc === 0)) cmds.unshift('rally');
-  else if (!mine && x.owner >= 0 && eLeft < L.ELECT_WINDOW) cmds.splice(cmds.indexOf('pact'), 1, 'run');
+  // いつものコマンドは、いつも同じ並び。そのときだけ出るコマンド（補助金・演説会など）は、別の枠にまとめて上に出す
+  const cmds = mine ? ['ind', 'tour', 'care', 'dis', 'invite'] : ['visit', 'pact', 'talk'];
+  const now = [];
+  if (race && (race.ch === 0 || race.inc === 0)) now.push('rally');
+  else if (!mine && x.owner >= 0 && eLeft < L.ELECT_WINDOW) now.push('run');
+  if (mine && t && !L.inTalk(t, 0)) now.push('keep');
+  if (!mine && t && t.rival === undefined && t.f !== 0) now.push('counter');
+  if (!mine && t && t.rival !== undefined && L.inTalk(t, 0)) now.push('raise');
+  if (!mine && L.aidable(S, c) && L.adjacentTo(S, ADJ, c, 0)) now.push('aid');
+  if (mine && S.lure && L.lureSite(S, ADJ, 0) === c) now.push('lure');
   if (S.budget === undefined) S.budget = 1;
   const EFF = { ind: '産業力', tour: '観光力', care: '満足度', dis: '防災力', visit: '関係度' };
-  const btns = cmds.map(k => {
+  const btn = k => {
     const sc = L.SCALABLE.includes(k) ? S.budget : undefined;
     const def = L.CMDS[k], r = L.canDo(S, ADJ, 0, k, c, S.ap, sc), cost = L.cmdCost(S, k, c, sc, 0);
     const e = L.cmdEffect(S, 0, k, sc);
@@ -493,18 +492,42 @@ function renderSheet() {
       : k === 'rally' ? `得票 +${L.RALLY_STEP}（${race.rally[0]}/${L.RALLY_MAX}回）・いまの見込み ${Math.round(L.electMine(S, c))}％`
       : k === 'lure' ? lureNote()
       : k === 'invite' ? `成功率 ${Math.round(L.inviteChance(S, c) * 100)}％・成功で産業力 +12・人口増${x.inviteLead ? '（前回のつながりで上乗せ）' : ''}` : def.note;
+    // 予報の出ている防災対策と、独立の動きがあるときの子育て支援は、並びはそのままで目立たせる
     const urgent = (k === 'dis' && fcHere && mine) || (k === 'care' && mine && !!x.indep);
-    return `<button class="cmd${['talk', 'counter', 'raise', 'keep', 'lure', 'run', 'rally', 'aid'].includes(k) || urgent ? ' primary' : ''}${k === 'lure' || urgent ? ' wide' : ''}" data-cmd="${k}" aria-disabled="${!r.ok}">
-      <span class="ttl"><strong>${def.label}</strong><span class="cost num">${cost ? cost + '億・' : ''}行動${def.ap}</span></span><small>${r.ok ? note : r.reason}</small></button>`;
-  }).join('');
+    return `<button class="cmd${k === 'talk' ? ' primary' : ''}${urgent ? ' urgent' : ''}${now.includes(k) ? ' wide' : ''}" data-cmd="${k}" aria-disabled="${!r.ok}">
+      <span class="ttl"><strong>${cmdIcon(k)}${def.label}</strong><span class="cost num">${cost ? cost + '億・' : ''}行動${def.ap}</span></span><small>${r.ok ? note : r.reason}</small></button>`;
+  };
+  const btns = (now.length ? `<div class="cmds-now"><p class="h5">いまだけのコマンド</p><div class="cmds">${now.map(btn).join('')}</div></div>` : '')
+    + `<div class="cmds">${cmds.map(btn).join('')}</div>`;
   // 一行に収まる要点だけ。他陣営・独立なら関係度、自陣営なら満足度を先に出す
   const line = (mine ? `満足度 ${Math.round(x.sat)} · 魅力 ${Math.round(L.appealOf(S, c))} · 収入 ${L.incomeOf(S, c, month).toFixed(1)}億円`
     : `満足度 ${Math.round(x.sat)} · 人口 ${x.pop.toFixed(0)}千人`) + (alert ? ` <b class="alert">${alert}</b>` : '');
   sheetFrame(`${TI.icon(c)}<h2>${rb(c)}</h2>${ownerTag}<span class="tag">${info[0]}</span>`, line,
-    `${mine ? shareLine(c, month) : relGauge(c)}${cmds.some(k => L.SCALABLE.includes(k)) ? budgetHtml() : ''}<div class="cmds">${btns}</div>`,
+    `${mine ? shareLine(c, month) : relGauge(c)}${cmds.some(k => L.SCALABLE.includes(k)) ? budgetHtml() : ''}${btns}`,
     `<div class="meters">${meter('産業力', x.ind, '', 'ind')}${meter('観光力', x.tour, '', 'tour')}${meter('満足度', x.sat, '', 'sat')}${meter('防災力', x.dis, '', 'dis')}</div>
     <p class="facts num">人口 ${x.pop.toFixed(1)}千人 · 収入 ${L.incomeOf(S, c, month).toFixed(1)}億円/月</p>${notes}`);
   for (const b of sh.querySelectorAll('.cmd')) b.onclick = () => runCmd(b.dataset.cmd);
+}
+// コマンドのアイコン（線で描いた小さな絵。色は文字と同じ）
+const CMD_ICONS = {
+  ind: '<path d="M3 21V10l5 3v-3l5 3v-3l5 3V4h3v17z"/>',
+  tour: '<rect x="3" y="7" width="18" height="13" rx="2"/><circle cx="12" cy="13.5" r="3.5"/><path d="M8.5 7l1.5-3h4l1.5 3"/>',
+  care: '<path d="M12 20s-7.5-4.4-7.5-10A4 4 0 0 1 12 7.6 4 4 0 0 1 19.5 10c0 5.6-7.5 10-7.5 10z"/>',
+  dis: '<path d="M12 3l7.5 3v5.5c0 4.7-3.2 8-7.5 9.5-4.3-1.5-7.5-4.8-7.5-9.5V6z"/><path d="M8.5 12l2.5 2.5 4.5-4.5"/>',
+  invite: '<path d="M4 21V4h10v17M14 9h6v12M2.5 21h19M7.5 8h3M7.5 12h3M7.5 16h3"/>',
+  visit: '<circle cx="8" cy="7.5" r="3"/><circle cx="16.5" cy="7.5" r="3"/><path d="M2.5 20c0-3.6 2.4-6 5.5-6s5.5 2.4 5.5 6M14 14.2c.8-.1 1.6-.2 2.5-.2 3 0 5 2.4 5 6"/>',
+  pact: '<path d="M6 3h9l4 4v14H6z"/><path d="M14.5 3v4.5H19M9 12h7M9 16h5"/>',
+  talk: '<path d="M3 4.5h12v8.5H8.5L4.5 16v-3H3z"/><path d="M15 8.5h6V17h-1.5v3l-3.5-3h-5v-4"/>',
+  counter: '<path d="M4 8h15l-3.5-3.5M20 16H5l3.5 3.5"/>',
+  raise: '<path d="M12 19V5M6 11l6-6 6 6M5 21.5h14"/>',
+  keep: '<circle cx="12" cy="5" r="2"/><path d="M12 7v14M8 11h8M4.5 14c0 4 3.4 7 7.5 7s7.5-3 7.5-7"/>',
+  lure: '<circle cx="12" cy="12" r="9"/><path d="M8.5 6.5l3.5 5 3.5-5M12 11.5V18M9 12.5h6M9 15.5h6"/>',
+  run: '<path d="M5 21.5V3.5M5 4h13l-3 4.5 3 4.5H5"/>',
+  rally: '<path d="M3 9.5v5h3.5l9.5 5V4.5l-9.5 5z"/><path d="M19 9c1.2 1.2 1.2 4.8 0 6"/>',
+  aid: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V4h6v3M12 10.5v6M9 13.5h6"/>'
+};
+function cmdIcon(k) {
+  return CMD_ICONS[k] ? `<svg class="ci" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${CMD_ICONS[k]}</svg>` : '';
   for (const b of sh.querySelectorAll('[data-scale]')) b.onclick = () => { S.budget = Number(b.dataset.scale); save(); renderSheet(); };
   bindLure(sh);
 }
