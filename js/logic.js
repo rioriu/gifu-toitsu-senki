@@ -990,7 +990,7 @@
       } else {
         if (st.factions[x.owner].capital === code && owned(st, x.owner).length > 3) return { ok: false, reason: '本拠地は、相手陣営の市町村が3つ以下になるまで切り崩せません' };
         const gap = avgSat(st, f) - x.sat;
-        if (x.sat >= 45 && gap < 8) return { ok: false, reason: `切り崩すには、相手の満足度を45未満にするか、自陣営の平均満足度を相手より8以上高くします（現在 ${Math.round(x.sat)}、差 ${Math.round(gap)}）` };
+        if (x.sat >= 45 && gap < 8) return { ok: false, reason: `相手の満足度が45未満に落ちているか、自陣営の平均満足度が相手より8以上高いと切り崩せます（現在 ${Math.round(x.sat)}、差 ${Math.round(gap)}）` };
         if (rel < 60) return { ok: false, reason: `関係度が60に届いていません（現在${Math.round(rel)}）` };
       }
       return { ok: true, cost };
