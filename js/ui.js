@@ -687,6 +687,8 @@ function showInvite(c, before, chance) {
 
 // ---------- 月を終える ----------
 let queue = [], inBattle = false;
+// おまかせにした決戦の市町村。月を終えたら、その開票結果をまず見せる
+let autoBattles = [];
 // 連打で2か月進まないように、月を終えた直後の0.8秒は受け付けない
 let lastEnd = 0;
 function endMonth() {
@@ -697,14 +699,14 @@ function endMonth() {
   lastEnd = Date.now();
   // 見込み30〜70％の住民投票は、月を終える前に決戦で決める
   const due = prefs.battle === false ? [] : L.battlesDue(S);
-  if (due.length) { runBattles(due); return; }
+  if (due.length) { autoBattles = []; runBattles(due); return; }
   finishMonth();
 }
 function runBattles(list) {
   const c = list.shift();
   if (!c) { inBattle = false; finishMonth(); return; }
   inBattle = true;
-  Battle.start(battleOpts(c), r => { if (r) { L.setBattle(S, c, r); save(); } runBattles(list); });
+  Battle.start(battleOpts(c), r => { if (r) { L.setBattle(S, c, r); save(); } else autoBattles.push(c); runBattles(list); });
 }
 // 決戦に渡すもの：市町村の形、いまの見込み、自陣営のある向き、技になる人材と偉人
 function battleOpts(c) {
@@ -743,19 +745,27 @@ function finishMonth() {
   const d = L.dateOf(S.turn);
   save();
   const summary = [`${d.label}　収支 ${res.income >= 0 ? '+' : ''}${res.income}億円`, ...res.news].join('　');
+  // おまかせにした決戦の開票結果は、決戦の画面を閉じたすぐあとに見せる。相手の動きや行事のあとに回さない
+  const auto = autoBattles; autoBattles = [];
+  const isAuto = v => auto.includes(v.code) && !v.battle;
+  const shows = [...res.votes.filter(isAuto).map(v => () => showVote({ ...v, auto: true }, next)), ...res.elects.filter(isAuto).map(v => () => showElect({ ...v, auto: true }, next))];
+  res.votes = res.votes.filter(v => !isAuto(v)); res.elects = res.elects.filter(v => !isAuto(v));
+  res.steps = res.steps.filter(s => !((s.kind === 'vote' || s.kind === 'elect') && isAuto(s)));
   // 季節の行事があれば、先に挿絵つきで知らせる（月初の出来事のため）
   const fest = prefs.season !== false && seasonOf(S.turn);
-  if (fest) { renderStatus(); showSeason(fest, () => { closeOverlay(); afterMonth(res, before, summary); }); }
-  else afterMonth(res, before, summary);
+  const go = () => {
+    if (fest) { renderStatus(); showSeason(fest, () => { closeOverlay(); afterMonth(res, before, summary); }); }
+    else afterMonth(res, before, summary);
+  };
+  if (shows.length) { render(); queue = [...shows, go]; next(); }
+  else go();
 }
 function afterMonth(res, before, summary) {
   let steps = mergeSteps(res.steps);
-  if (prefs.replayScope === 'mine') {
-    steps = steps.filter(s => stepMine(s, before));
-    // 見せない動きで持ち主が変わった市町村は、はじめから今の色で塗る
-    const shown = new Set(steps.flatMap(s => s.kind === 'join' ? s.towns : [s.code]));
-    for (const c in before) if (!shown.has(c)) before[c] = S.m[c].owner;
-  }
+  if (prefs.replayScope === 'mine') steps = steps.filter(s => stepMine(s, before));
+  // 見せない動き（設定で外したものや、先に見せたおまかせの開票）で持ち主が変わった市町村は、はじめから今の色で塗る
+  const shown = new Set(steps.flatMap(s => s.kind === 'join' ? s.towns : [s.code]));
+  for (const c in before) if (!shown.has(c)) before[c] = S.m[c].owner;
   if (prefs.replay && steps.length) {
     sel = null; render();
     startReplay(steps, before, () => { toast(summary); queue = S.over ? [() => showOver()] : []; next(); });
@@ -931,7 +941,7 @@ function showVote(v, onOk) {
   const keepLine = joinLine + (v.keep ? `<p class="sub">引き留め ${v.keep}段で、賛成を${v.keep * L.KEEP_STEP}ポイント押し下げました</p>` : '');
   const contestLine = keepLine + (c ? `<p class="sub">条件の競り合いは${who}に決まりました（上乗せ ${c.bids[c.winner]}段 対 ${c.bids[c.loser]}段）</p>` : '');
   openOverlay(`${art('img/event/vote.webp', 'art-top art-band')}<h3>住民投票 開票結果</h3>
-    <p class="sub">${NAMES[v.code]}　${who}との合併の是非</p>${contestLine}
+    <p class="sub">${NAMES[v.code]}　${who}との合併の是非${v.auto ? '（決戦はおまかせ）' : ''}</p>${contestLine}
     <div class="ballot">
       <div class="vs"><div><small>賛成</small><b class="num">${v.yes.toLocaleString()}票</b></div><div style="text-align:right;margin-right:110px"><small>反対</small><b class="num">${v.no.toLocaleString()}票</b></div></div>
       <div class="split" style="margin-right:110px"><i class="yes" style="width:${yp}%"></i><i class="no" style="width:${100 - yp}%"></i></div>
@@ -961,7 +971,7 @@ function showElect(v, onOk) {
   const lead = mineCh ? (v.pass ? `${n}はあなたの陣営に移りました。` : 'あなたの陣営の候補は落選しました。関係度が下がりました。') : (v.pass ? `${n}は${rival}に移りました。` : `現職が再選し、${n}を守りました。`);
   const joinLine = v.joined && v.joined.length ? `<p class="sub">${n}ゆかりの人材：${v.joined.join('・')}が${facName(v.ch)}に加わりました</p>` : '';
   openOverlay(`${art('img/event/elect.webp', 'art-top art-band')}<h3>首長選挙 開票結果</h3>
-    <p class="sub">${n}　あなたの陣営の${mineCh ? '候補' : '現職'} 対 ${rival}の${mineCh ? '現職' : '候補'}</p>${joinLine}
+    <p class="sub">${n}　あなたの陣営の${mineCh ? '候補' : '現職'} 対 ${rival}の${mineCh ? '現職' : '候補'}${v.auto ? '（決戦はおまかせ）' : ''}</p>${joinLine}
     <div class="ballot">
       <div class="vs"><div><small>あなたの陣営</small><b class="num">${my.toLocaleString()}票</b></div><div style="text-align:right;margin-right:110px"><small>${rival}</small><b class="num">${their.toLocaleString()}票</b></div></div>
       <div class="split" style="margin-right:110px"><i class="yes" style="width:${mp}%"></i><i class="no" style="width:${100 - mp}%"></i></div>
