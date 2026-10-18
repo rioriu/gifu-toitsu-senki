@@ -1159,7 +1159,7 @@
   function canDoBase(st, adj, f, cmd, code, scale) {
     const x = st.m[code]; const def = CMDS[cmd];
     if (st.over) return { ok: false, reason: 'ゲームは終了しています' };
-    if (ONCE.includes(cmd) && usedThisMonth(st, f, code, cmd)) return { ok: false, reason: `${def.label}は、この市町村では今月もう行いました（同じ市町村には月1回まで）` };
+    if (ONCE.includes(cmd) && usedThisMonth(st, f, code, cmd)) return { ok: false, reason: `この市町村では今月もう行いました（月1回まで）` };
     const cost = cmdCost(st, cmd, code, scale, f);
     if (cmd === 'lure') {
       const L = st.lure;

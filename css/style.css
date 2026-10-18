@@ -217,7 +217,8 @@ rt { font-size: .55em; font-weight: 400; letter-spacing: 0; font-family: var(--f
 ul.list { margin: 10px 0 0; padding-left: 1.2em; font-size: 13.5px; }
 ul.list li { margin: 4px 0; }
 .cmd.urgent { border-color: var(--bad); border-width: 2px; padding: 4px 7px; }
-.cmd small { font-size: 11px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 説明は切らずに折り返して全部見せる（同じ行のボタンは高いほうにそろう） */
+.cmd small { font-size: 11px; line-height: 1.35; color: var(--ink-2); overflow-wrap: anywhere; }
 .cmd .cost { font-size: 11px; color: var(--ink-2); white-space: nowrap; margin-left: auto; }
 .cmd[aria-disabled="true"] { opacity: .55; }
 .cmd.primary { border-color: var(--me); }
@@ -239,7 +240,6 @@ ul.list li { margin: 4px 0; }
 .share b.up { color: var(--good); }
 /* 説明の長いボタン（誘致合戦）は横いっぱいにして、説明を折り返す */
 .cmd.wide { grid-column: 1 / -1; }
-.cmd.wide small { white-space: normal; }
 .cmd:not([aria-disabled="true"]):active { transform: translateY(1px); }
 .empty { color: var(--ink-2); font-size: 13.5px; }
 .empty b { color: var(--ink); }
