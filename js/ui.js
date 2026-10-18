@@ -526,8 +526,15 @@ function renderSheet() {
       : k === 'invite' ? `成功率 ${Math.round(L.inviteChance(S, c) * 100)}％・成功で産業力 +12・人口増${x.inviteLead ? '（前回のつながりで上乗せ）' : ''}` : def.note;
     // 予報の出ている防災対策と、独立の動きがあるときのよく効くほうの支援は、並びはそのままで目立たせる
     const urgent = (k === 'dis' && fcHere && mine) || (!!gen && mine && !!x.indep && k === L.bestCare(S, 0, c));
-    return `<button class="cmd${k === 'talk' ? ' primary' : ''}${urgent ? ' urgent' : ''}${now.includes(k) || k === 'build' ? ' wide' : ''}" data-cmd="${k}" aria-disabled="${!r.ok}">
-      <span class="ttl"><strong>${cmdIcon(k)}${def.label}</strong><span class="cost num">${cost ? cost + '億・' : ''}行動${def.ap}</span></span><small>${r.ok ? note : r.reason}</small></button>`;
+    // いつものコマンドは、いちばん大事な数字だけを短く出す。くわしい説明と押せない理由の全文は、押したときに出す
+    const wide = now.includes(k) || k === 'build';
+    const short = wide ? note : gen ? (x.indep && mine ? `満足度 →${Math.min(100, Math.round(x.sat + gen.all))}` : `満足度 +${Math.round(gen.all)}`)
+      : k === 'dis' ? `防ぐ確率 ${Math.round(x.dis)}→${Math.min(100, Math.round(x.dis) + e)}％` : k === 'invite' ? `成功率 ${Math.round(L.inviteChance(S, c) * 100)}％`
+      : EFF[k] ? `${EFF[k]} +${e}` : CMD_SHORT[k] || note;
+    const why = r.ok ? '' : shortReason(r.reason);
+    const price = [cost ? cost + '億' : '', def.ap > 1 ? `行動${def.ap}` : ''].filter(Boolean).join('・');
+    return `<button class="cmd${k === 'talk' ? ' primary' : ''}${urgent ? ' urgent' : ''}${wide ? ' wide' : ''}" data-cmd="${k}" title="${(r.ok ? note : r.reason).replace(/"/g, '&quot;')}" aria-disabled="${!r.ok}">
+      <span class="ttl"><strong>${cmdIcon(k)}${def.label}</strong>${price ? `<span class="cost num">${price}</span>` : ''}</span><small>${r.ok ? short : why}</small></button>`;
   };
   // 大型事業：計画のある市町村（圏域に1つ）を持っていて、まだ完成していなければ、別の枠で出す
   const pjHere = L.projAt(c), pjSt = pjHere && L.projState(S, pjHere.id);
@@ -538,11 +545,26 @@ function renderSheet() {
   const line = (mine ? `満足度 ${Math.round(x.sat)} · 魅力 ${Math.round(L.appealOf(S, c))} · 収入 ${L.incomeOf(S, c, month).toFixed(1)}億円`
     : `満足度 ${Math.round(x.sat)} · 人口 ${x.pop.toFixed(0)}千人`) + (alert ? ` <b class="alert">${alert}</b>` : '');
   sheetFrame(`${TI.icon(c)}<h2>${rb(c)}</h2>${ownerTag}<span class="tag">${info[0]}</span>`, line,
-    `${mine ? shareLine(c, month) : relGauge(c)}${cmds.some(k => L.SCALABLE.includes(k)) ? budgetHtml() : ''}${btns}`,
-    `<div class="meters">${meter('産業力', x.ind, '', 'ind')}${meter('観光力', x.tour, '', 'tour')}${meter('満足度', x.sat, '', 'sat')}${meter('防災力', x.dis, '', 'dis')}</div>
+    `${mine ? '' : relGauge(c)}${cmds.some(k => L.SCALABLE.includes(k)) ? budgetHtml() : ''}${btns}`,
+    `${mine ? shareLine(c, month) : ''}<div class="meters">${meter('産業力', x.ind, '', 'ind')}${meter('観光力', x.tour, '', 'tour')}${meter('満足度', x.sat, '', 'sat')}${meter('防災力', x.dis, '', 'dis')}</div>
     ${gensHtml(x)}
     <p class="facts num">人口 ${x.pop.toFixed(1)}千人 · 高齢化率 ${Math.round(x.age[2] * 100)}％ · 収入 ${L.incomeOf(S, c, month).toFixed(1)}億円/月</p>${notes}`);
   for (const b of sh.querySelectorAll('.cmd')) b.onclick = () => runCmd(b.dataset.cmd);
+}
+// ほかの市町村へのコマンドの短い説明
+const CMD_SHORT = { pact: '協定を結ぶ', talk: '3か月後に住民投票' };
+// 押せない理由を、ボタンに収まる長さにする（全文は押したときに出す）
+function shortReason(t) {
+  const R = [
+    [/^この市町村では今月もう/, () => '今月はもう行った'], [/^今月の行動力が足りません/, () => '行動力が足りない'], [/^財源が足りません（(\d+)億円/, m => `財源が足りない（${m[1]}億）`],
+    [/^これ以上は上がりません/, () => 'これ以上は上がらない'], [/^関係度が(\d+)に届いていません（現在(\d+)）/, m => `関係度${m[1]}から（いま${m[2]}）`],
+    [/^自陣営と隣り合っていません/, () => '隣り合っていない'], [/^先に連携協定/, () => '先に連携協定'], [/^すでに協定/, () => '協定は結んだ'],
+    [/^否決のため、あと(\d+)か月/, m => `あと${m[1]}か月は不可`], [/^同時に進められる協議は(\d+)件まで/, m => `協議は${m[1]}件まで`],
+    [/^ほかの陣営と協議中/, () => 'ほかの陣営と協議中'], [/^合併協議の最中/, () => '協議中'], [/^首長選挙の最中/, () => '選挙中'],
+    [/^相手の満足度が45未満/, () => '満足度の差が足りない'], [/^本拠地は/, () => 'まだ切り崩せない'], [/^ほかの陣営の市町村とは協定/, () => '協定は独立の町だけ']
+  ];
+  for (const [re, f] of R) { const m = t.match(re); if (m) return f(m); }
+  return t.split(/[（。]/)[0];
 }
 // コマンドのアイコン（線で描いた小さな絵。色は文字と同じ）
 const CMD_ICONS = {
@@ -725,7 +747,7 @@ function toast(msg, ms) {
 
 function budgetHtml() {
   const cur = L.SCALES[S.budget];
-  return `<div class="budget"><span class="lbl">予算<small class="num">費用×${cur.cost}・効果×${cur.eff}</small></span><div class="seg" role="group" aria-label="予算規模">${L.SCALES.map((x, i) => `<button data-scale="${i}" aria-pressed="${S.budget === i}">${x.label}</button>`).join('')}</div></div>`;
+  return `<div class="budget"><span class="lbl" title="費用×${cur.cost}・効果×${cur.eff}">予算</span><div class="seg" role="group" aria-label="予算規模">${L.SCALES.map((x, i) => `<button data-scale="${i}" aria-pressed="${S.budget === i}">${x.label}</button>`).join('')}</div></div>`;
 }
 function runCmd(k) {
   if (!S || S.over) return;
