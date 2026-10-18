@@ -31,7 +31,7 @@ const MAP = ctx.MAP;
 const NAMES = {}, ADJ = {};
 for (const m of MAP.muni) { NAMES[m.code] = m.name; ADJ[m.code] = m.adj; }
 // タイトル画面のおすすめと同じ
-const PICKS = ['21201', '21202', '21213', '21203', '21204', '21604', '21505', '21403', '21507', '21506'];
+const PICKS = ['21201', '21213', '21219', '21202', '21203', '21204', '21604', '21505', '21403', '21507', '21504'];
 // 難易度の分け方。勝率は圏域制覇と県内統一の平均、期間は県内統一で勝つまでの中央値
 const LABEL_RULE = { hard2: 72, hard: 98, easy: 99, easyMonths: 75 };
 function labelOf(avg, unifyT) {
@@ -108,13 +108,15 @@ function botTurn(st, f) {
     if (a) { L.inviteAdv(st, f, a.id); st.ap--; }
   }
 
+  // 満足度を上げるのは、子育て支援と高齢者支援のうち、その町でよく効くほう
+  const care = c => L.bestCare(st, f, c) || 'care';
   for (let guard = 0; st.ap > 0 && guard < 20; guard++) {
     const own = mine();
-    // 1. 狙われている市町村：引き留めと子育て支援（本拠地を優先）
+    // 1. 狙われている市町村：引き留めと満足度の手当て（本拠地を優先）
     const attacked = own.filter(c => { const t = st.m[c].talk; return t && !L.inTalk(t, f); })
       .sort((a, b) => (b === me.capital) - (a === me.capital) || st.m[b].pop - st.m[a].pop);
     if (attacked.some(c => act('keep', c, true))) continue;
-    if (attacked.some(c => st.m[c].sat < rivalSat(st, f, c) + 5 && st.m[c].sat < 95 && act('care', c, true))) continue;
+    if (attacked.some(c => st.m[c].sat < rivalSat(st, f, c) + 5 && st.m[c].sat < 95 && act(care(c), c, true))) continue;
     // 首長選挙：対立候補を立てられた市町村は、負けそうなら演説会（本拠地と大きな町を優先）
     const races = own.filter(c => { const r = st.m[c].race; return r && r.inc === f && L.electMine(st, c) < 62; })
       .sort((a, b) => (b === me.capital) - (a === me.capital) || st.m[b].pop - st.m[a].pop);
@@ -126,7 +128,7 @@ function botTurn(st, f) {
       if (c === me.capital && own.length > 3) return false;
       return st.m[c].sat < 47 || rs - st.m[c].sat >= 5;
     }).sort((a, b) => (b === me.capital) - (a === me.capital) || st.m[a].sat - st.m[b].sat);
-    if (weak.some(c => act('care', c, c === me.capital, true))) continue;
+    if (weak.some(c => act(care(c), c, c === me.capital, true))) continue;
     // 3. 条件の競り合いで負けていれば上乗せ
     const contest = Object.keys(st.m).find(c => { const t = st.m[c].talk; return t && t.rival !== undefined && L.inTalk(t, f) && t.bids[f] <= t.bids[t.f === f ? t.rival : t.f]; });
     if (contest && act('raise', contest)) continue;
@@ -165,11 +167,11 @@ function botTurn(st, f) {
     const big = own.slice().sort((a, b) => st.m[b].pop - st.m[a].pop)[0];
     const x = st.m[big];
     if ((net() < 4 || L.appeal(st, f) < 60) && act(x.tour > x.ind + 10 && x.tour < 95 ? 'tour' : 'ind', big, false, true)) continue;
-    // 9. 満足度：いちばん低い市町村で子育て支援
+    // 9. 満足度：いちばん低い市町村で子育て支援か高齢者支援
     const low = own.slice().sort((a, b) => st.m[a].sat - st.m[b].sat)[0];
-    if (st.m[low].sat < 60 && act('care', low, false, true)) continue;
+    if (st.m[low].sat < 60 && act(care(low), low, false, true)) continue;
     // 10. 余裕があれば、満足度を上げて切り崩しやすくする（ライバルの市町村は平均満足度の差で切り崩せる）
-    if (me.money > 200 && st.m[low].sat < 90 && act('care', low, false, true)) continue;
+    if (me.money > 200 && st.m[low].sat < 90 && act(care(low), low, false, true)) continue;
     // 11. まだ余裕があれば産業振興
     if (me.money > 80 && act('ind', big, false, true)) continue;
     break;

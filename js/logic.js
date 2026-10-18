@@ -23,6 +23,41 @@
   };
   const REGIONS = ['岐阜', '西濃', '中濃', '東濃', '飛騨'];
 
+  // 年齢の割合（％）：[0〜14歳, 65歳以上]。2020年国勢調査（不詳を補った値）。
+  // 岐阜県「令和2年国勢調査からみた岐阜県の人口」第9表 市町村別の年齢（3区分）別人口及び割合
+  const AGE = {
+    '21201': [11.7, 29.6], '21202': [12.9, 27.6], '21203': [12.5, 33.4], '21204': [11.5, 31.4], '21205': [12.3, 30.6],
+    '21206': [11.9, 32.8], '21207': [11.0, 36.3], '21208': [11.3, 31.4], '21209': [12.9, 27.8], '21210': [11.5, 35.4],
+    '21211': [15.2, 23.4], '21212': [11.9, 32.0], '21213': [13.1, 28.6], '21214': [13.0, 28.1], '21215': [10.3, 36.1],
+    '21216': [15.3, 21.2], '21217': [10.6, 40.4], '21218': [12.7, 30.6], '21219': [11.7, 37.5], '21220': [10.7, 40.6],
+    '21221': [10.0, 34.4], '21302': [14.6, 22.8], '21303': [12.4, 28.2], '21341': [10.6, 34.1], '21361': [12.4, 31.4],
+    '21362': [8.9, 40.1], '21381': [11.8, 32.5], '21382': [13.5, 26.6], '21383': [13.1, 28.7], '21401': [10.2, 38.5],
+    '21403': [12.7, 30.1], '21404': [12.7, 29.7], '21421': [13.8, 24.7], '21501': [13.0, 28.1], '21502': [14.1, 32.3],
+    '21503': [12.6, 32.0], '21504': [8.3, 46.1], '21505': [9.8, 40.2], '21506': [7.9, 46.8], '21507': [9.2, 45.1],
+    '21521': [11.9, 31.8], '21604': [13.3, 33.1]
+  };
+  // 世代：子育て世代・働く世代・高齢者。子育て世代は0〜14歳の子どもとその親（親は子どもと同じ人数と見なす）、
+  // 高齢者は65歳以上、働く世代は残りの人。全体の満足度は、3つの世代の満足度を人口の割合で重みづけした平均
+  const GENS = ['子育て世代', '働く世代', '高齢者'];
+  function ageOf(code) { const [k, o] = AGE[code]; return [k * 2 / 100, 1 - (k * 2 + o) / 100, o / 100]; }
+  function syncSat(x) { x.sat = x.age[0] * x.gs[0] + x.age[1] * x.gs[1] + x.age[2] * x.gs[2]; }
+  // 満足度を動かす。g を渡すとその世代だけ、渡さなければ全世代
+  function addSat(x, d, g) { for (let i = 0; i < 3; i++) if (g === undefined || g === i) x.gs[i] = clamp(x.gs[i] + d, 0, 100); syncSat(x); }
+  // 子育て世代と働く世代の満足度（引っ越すのは若い世代なので、人口の増減はこちらで決まる）
+  function youngSat(x) { return (x.age[0] * x.gs[0] + x.age[1] * x.gs[1]) / (x.age[0] + x.age[1]); }
+  // いちばん満足度の低い世代
+  function lowGen(x) { return x.gs.indexOf(Math.min(...x.gs)); }
+  // 古いセーブには世代がないので、今の満足度を3世代に分ける
+  function ensureGen(st) { for (const c in st.m) { const x = st.m[c]; if (!x.age) { x.age = ageOf(c); x.gs = [x.sat, x.sat, x.sat]; } } }
+  // 毎年4月に町が年をとる。高齢者は AGE_UP ずつ増え、子育て世代は満足度が KID_KEEP より高いと増え、低いと減る
+  const AGE_UP = 0.004, KID_KEEP = 55;
+  function ageTick(st) {
+    for (const c in st.m) {
+      const x = st.m[c], o = clamp(x.age[2] + AGE_UP, 0.1, 0.6), k = clamp(x.age[0] + (x.gs[0] - KID_KEEP) * 0.0003 - 0.002, 0.1, 0.45);
+      x.age = [k, 1 - k - o, o]; syncSat(x);
+    }
+  }
+
   // 季節で観光収入が伸びる月
   const SEASON = {
     '鵜飼': { months: [5, 6, 7, 8, 9, 10], x: 1.6 },
@@ -64,10 +99,10 @@
   // HIT：圏域の市町村それぞれが襲われる確率。SAT：被害の満足度。SAVE：防いだときの満足度。被害を受けた市町村には、隣の陣営が AID_MONTHS か月のあいだ災害支援できる
   const DISASTERS = { 豪雨: { months: [6, 7, 8, 9], p: 0.45 }, 豪雪: { months: [12, 1, 2], p: 0.5 } };
   const DIS_HIT = 0.4, DIS_SAT = 8, DIS_SAVE = 3, AID_REL = 18, AID_SAT = 5, AID_MONTHS = 2;
-  // 満足度が低い市町村：FLOW 未満で人口が流れ出し（月 0.4〜1％）、INDEP 未満で独立の動きが起きる。
+  // 満足度が低い市町村：子育て世代と働く世代の満足度が FLOW 未満で人口が流れ出し（月 0.4〜1％）、全体の満足度が INDEP 未満で独立の動きが起きる。
   // 独立の動きは、INDEP_MONTHS か月のうちに満足度を CALM 以上に戻せば収まり、戻せなければ住民投票。本拠地では起きない
   const FLOW_SAT = 40, INDEP_SAT = 30, CALM_SAT = 50, INDEP_MONTHS = 3, INDEP_REST = 6;
-  function outflow(x) { return x.sat < FLOW_SAT ? Math.min(0.01, 0.004 + (FLOW_SAT - x.sat) * 0.0002) : 0; }
+  function outflow(x) { const y = youngSat(x); return y < FLOW_SAT ? Math.min(0.01, 0.004 + (FLOW_SAT - y) * 0.0002) : 0; }
 
   function hash(s) { let h = 2166136261; for (const ch of s) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
@@ -90,10 +125,10 @@
   // 65％未満は超むずかしい、98％未満はむずかしい、99％以上で県内統一が60か月以内ならやさしい、ほかはふつう。
   // バランスを変えたら `node tools/balance.js 60 --labels` で測り直して貼り替える
   const DIFFICULTY = {
-    やさしい: ['21201', '21202', '21213', '21219'],
-    ふつう: ['21203', '21204', '21205', '21206', '21207', '21208', '21209', '21211', '21212', '21216', '21217', '21218', '21220', '21221', '21303', '21341', '21361', '21362', '21382', '21401', '21404', '21421', '21604'],
-    むずかしい: ['21210', '21214', '21215', '21302', '21381', '21383', '21403', '21501', '21503', '21505', '21506', '21521'],
-    超むずかしい: ['21502', '21504', '21507']
+    やさしい: ['21201', '21213', '21219'],
+    ふつう: ['21202', '21203', '21204', '21205', '21206', '21207', '21208', '21209', '21211', '21212', '21214', '21216', '21218', '21220', '21221', '21303', '21341', '21361', '21362', '21382', '21421'],
+    むずかしい: ['21210', '21215', '21217', '21302', '21381', '21383', '21401', '21403', '21404', '21501', '21502', '21503', '21505', '21506', '21521', '21604'],
+    超むずかしい: ['21504', '21507']
   };
   const DIFF_OF = {};
   for (const lv in DIFFICULTY) for (const c of DIFFICULTY[lv]) DIFF_OF[c] = lv;
@@ -172,12 +207,14 @@
         owner: -1, pop,
         ind: clamp(Math.round((isCity ? 44 : 32) + Math.log10(pop + 1) * 8 + (IND_TAG[tag] || 0) + (h % 9) - 4), 15, 90),
         tour: clamp(Math.round(18 + (TOUR_TAG[tag] || 0) + ((h >>> 4) % 11) - 5), 8, 95),
-        sat: 50 + ((h >>> 8) % 13) - 4,
         dis: 42 + ((h >>> 12) % 17),
         pact: [], talk: null, cool: {}
       };
+      // 世代ごとの満足度は、町の満足度から少しずつずらす
+      const s = 50 + ((h >>> 8) % 13) - 4, x = st.m[m.code];
+      x.age = ageOf(m.code); x.gs = [0, 1, 2].map(i => s + ((h >>> (16 + i * 4)) % 7) - 3); syncSat(x);
     }
-    caps.forEach((c, i) => { st.m[c].owner = i; st.m[c].sat = Math.max(st.m[c].sat, 56); });
+    caps.forEach((c, i) => { const x = st.m[c]; x.owner = i; if (x.sat < 56) addSat(x, 56 - x.sat); });
     st.rel = st.factions.map(f => {
       const r = {};
       const capRegion = INFO[f.capital][0];
@@ -438,6 +475,7 @@
     ind: v => `産業振興の効果 +${v}`,
     tour: v => `観光PRの効果 +${v}`,
     care: v => `子育て支援の効果 +${v}`,
+    elder: v => `高齢者支援の効果 +${v}`,
     visit: v => `交流事業の効果 +${v}`,
     vote: v => `住民投票の賛成 +${v}`,
     steal: v => `ほかの陣営の市町村での住民投票の賛成 +${v}`,
@@ -587,7 +625,7 @@
       }
       case 'plan': case 'ind': { const c = low('ind'); return `${names[c]}の産業力は${Math.round(st.m[c].ind)}。産業振興で底上げを`; }
       case 'tour': case 'tourInc': { const c = low('tour'); return `${names[c]}の観光力は${Math.round(st.m[c].tour)}。観光PRで磨きましょう`; }
-      case 'care': case 'sat': { const c = low('sat'); return `${names[c]}の満足度は${Math.round(st.m[c].sat)}。住民の声に耳を傾けましょう`; }
+      case 'care': case 'sat': { const c = low('sat'); return `${names[c]}の満足度は${Math.round(st.m[c].sat)}。いちばん不満なのは${GENS[lowGen(st.m[c])]}です`; }
     }
     const month = dateOf(st.turn).month, net = factionIncome(st, f, month) - upkeep(st, f);
     return `月の収支は${net >= 0 ? '+' : '−'}${Math.abs(net)}億円。${net < 0 ? '支出を見直しましょう' : '余裕のあるうちに内政と外交へ'}`;
@@ -665,7 +703,7 @@
     if (!rows.length) { addLog(st, `${L.region}圏域への${L.name}の進出は見送られました`, 'info'); return; }
     const win = rows[0], x = st.m[win.site];
     x.firms = [...(x.firms || []), { name: L.name, inc: L.inc }];
-    x.ind = clamp(x.ind + L.ind, 0, 100); x.pop += x.pop * L.pop + 0.3; x.sat = clamp(x.sat + 3, 0, 100);
+    x.ind = clamp(x.ind + L.ind, 0, 100); x.pop += x.pop * L.pop + 0.3; addSat(x, 3);
     const nm = k => k === 0 ? 'あなたの陣営' : st.factions[k].name;
     addLog(st, `誘致合戦：${L.name}は${nm(win.f)}の${names[win.site]}に立地が決定（補助金${win.n}段・${win.paid}億円）。税収が毎月+${L.inc}億円`, win.f === 0 ? 'good' : (mine ? 'bad' : 'rival'));
     const step = { kind: 'lure', phase: 'result', code: win.site, f: win.f, name: L.name, region: L.region, inc: L.inc, ind: L.ind, pop: L.pop, rows: rows.map(({ score, ...r }) => r), mine };
@@ -692,7 +730,7 @@
   }
   function joinFaction(st, names, g, h, res) {
     const G = st.factions[g], H = st.factions[h], towns = owned(st, g);
-    for (const c of towns) { const x = st.m[c]; x.owner = h; x.sat = clamp(x.sat - JOIN_SAT, 0, 100); st.rel[h][c] = Math.max(st.rel[h][c], 60); }
+    for (const c of towns) { const x = st.m[c]; x.owner = h; addSat(x, -JOIN_SAT); st.rel[h][c] = Math.max(st.rel[h][c], 60); }
     // g の協定・協議はなくなる。受け入れた陣営が自分の市町村にかけていた協議もなくなる
     for (const c in st.m) {
       const x = st.m[c], t = x.talk;
@@ -776,14 +814,14 @@
       x.race = null;
       if (v.pass) {
         addFeat(st, ch, 'steal');
-        x.owner = ch; x.pact = []; x.sat = clamp(x.sat + 3, 0, 100);
+        x.owner = ch; x.pact = []; addSat(x, 3);
         st.rel[ch][c] = Math.max(st.rel[ch][c], 60);
         const joined = staffOnMerge(st, names, c, ch, prev);
         if (joined.length) { v.joined = joined; addLog(st, `${names[c]}ゆかりの${joined.join('・')}が${nm(ch)}に加わりました`, ch === 0 ? 'good' : 'rival'); }
         addLog(st, `${names[c]}の首長選挙は${nm(ch)}の候補が当選。${names[c]}は${nm(ch)}に移りました`, ch === 0 ? 'good' : (prev === 0 ? 'bad' : 'rival'));
         loseTown(st, names, prev);
       } else {
-        st.rel[ch][c] = clamp(st.rel[ch][c] - 10, 0, 100); x.sat = clamp(x.sat + 2, 0, 100);
+        st.rel[ch][c] = clamp(st.rel[ch][c] - 10, 0, 100); addSat(x, 2);
         addLog(st, `${names[c]}の首長選挙は現職（${nm(prev)}）が再選。${nm(ch)}の候補は落選`, prev === 0 ? 'good' : (ch === 0 ? 'bad' : 'rival'));
       }
       const step = { kind: 'elect', code: c, f: v.pass ? ch : prev, ch, prev, rally, ...v };
@@ -813,9 +851,11 @@
   function seasonX(code, month) {
     return seasonTags(code).reduce((m, t) => { const s = SEASON[t]; return s && s.months.includes(month) ? Math.max(m, s.x) : m; }, 1);
   }
+  // 税収は、働く世代の割合が多いほど増える（県の平均の約45％で1倍）
+  function taxOf(x) { return x.pop * 0.05 * (0.6 + x.ind / 100) * (0.55 + x.age[1]); }
   function incomeOf(st, code, month) {
     const x = st.m[code];
-    const base = x.pop * 0.05 * (0.6 + x.ind / 100);
+    const base = taxOf(x);
     const tour = x.tour * 0.05 * seasonX(code, month);
     return base + tour + firmInc(x) + projInc(st, code);
   }
@@ -825,7 +865,7 @@
     let base = 0, tour = 0, pact = 0, firm = 0;
     for (const c in st.m) {
       const x = st.m[c];
-      if (x.owner === f) { base += x.pop * 0.05 * (0.6 + x.ind / 100); tour += x.tour * 0.05 * seasonX(c, month); firm += firmInc(x) + projInc(st, c); }
+      if (x.owner === f) { base += taxOf(x); tour += x.tour * 0.05 * seasonX(c, month); firm += firmInc(x) + projInc(st, c); }
       else if (x.owner === -1 && x.pact.includes(f)) pact += incomeOf(st, c, month) * 0.15;
     }
     base *= (1 + roleVal(st, f, 'deputy') / 500) * (1 + advBonus(st, f, 'tax') / 100);
@@ -837,7 +877,8 @@
   const CMDS = {
     ind: { label: '産業振興', ap: 1, own: true, note: '産業力 +6' },
     tour: { label: '観光PR', ap: 1, own: true, note: '観光力 +7' },
-    care: { label: '子育て支援', ap: 1, own: true, note: '満足度 +8' },
+    care: { label: '子育て支援', ap: 1, own: true, note: '子育て世代の満足度 +16（働く世代 +7・高齢者 +3）' },
+    elder: { label: '高齢者支援', ap: 1, own: true, note: '高齢者の満足度 +16（働く世代 +6・子育て世代 +3）' },
     dis: { label: '防災対策', ap: 1, own: true, note: '防災力 +8' },
     invite: { label: '企業誘致', ap: 2, own: true, note: '成功すると産業力 +12・人口増' },
     visit: { label: '交流事業', ap: 1, own: false, note: '関係度 +15' },
@@ -886,7 +927,7 @@
       st.proj[p.id] = { f: s.f, done: true };
       for (const c of regionCodes(p.region).filter(c => st.m[c].owner === s.f)) {
         const x = st.m[c];
-        for (const [k, v] of Object.entries(p.fx)) x[k] = clamp(x[k] + v, 0, 100);
+        for (const [k, v] of Object.entries(p.fx)) if (k === 'sat') addSat(x, v); else x[k] = clamp(x[k] + v, 0, 100);
         if (p.pop) x.pop *= 1 + p.pop;
       }
       addLog(st, `大型事業「${p.name}」が完成。${p.region}圏域の${nm}の市町村で${projFx(p)}、${names[p.code]}の収入が毎月+${p.inc}億円`, s.f === 0 ? 'good' : 'rival');
@@ -905,9 +946,11 @@
   function policyTowns(st, r) {
     const p = POLICIES[(st.policy || {})[r]];
     if (!p || !policyReady(st, r)) return [];
-    return regionCodes(r).filter(c => st.m[c].owner === 0 && st.m[c][p.key] < 100 && !usedThisMonth(st, 0, c, p.cmd))
+    return regionCodes(r).filter(c => st.m[c].owner === 0 && st.m[c][p.key] < 100 && policyCmd(st, p, c))
       .sort((a, b) => st.m[a][p.key] - st.m[b][p.key]).slice(0, POLICY_TOWNS);
   }
+  // 方針で行うコマンド。暮らしは、子育て支援と高齢者支援のうち、その町の満足度をより上げるほう
+  function policyCmd(st, p, c) { return p.cmd === 'care' ? bestCare(st, 0, c) : usedThisMonth(st, 0, c, p.cmd) ? null : p.cmd; }
   function setPolicy(st, r, k) { st.policy = { ...(st.policy || {}), [r]: POLICIES[k] ? k : null }; }
   function runPolicies(st, names) {
     const fac = st.factions[0];
@@ -918,13 +961,14 @@
       const done = [];
       let paid = 0;
       for (const c of policyTowns(st, r)) {
-        const cost = cmdCost(st, p.cmd, c, 1, 0);
+        const cmd = policyCmd(st, p, c), cost = cmdCost(st, cmd, c, 1, 0);
         if (fac.money - cost < POLICY_RESERVE) { stopped = true; break; }
-        fac.money -= cost; paid += cost; done.push(c);
-        const x = st.m[c];
-        x[p.key] = clamp(x[p.key] + gainOf(x[p.key], cmdEffect(st, 0, p.cmd, 1)), 0, 100);
+        fac.money -= cost; paid += cost; done.push(`${names[c]}で${CMDS[cmd].label}`);
+        const x = st.m[c], e = cmdEffect(st, 0, cmd, 1);
+        if (GEN_FX[cmd]) { const g = genGains(x, cmd, e); x.gs = x.gs.map((v, i) => clamp(v + g[i], 0, 100)); syncSat(x); }
+        else x[p.key] = clamp(x[p.key] + gainOf(x[p.key], e), 0, 100);
       }
-      if (done.length) addLog(st, `方針（${r}圏域・${p.label}）：${done.map(c => names[c]).join('・')}で${CMDS[p.cmd].label}（${paid}億円）`, 'good');
+      if (done.length) addLog(st, `方針（${r}圏域・${p.label}）：${done.join('・')}（${paid}億円）`, 'good');
     }
     if (stopped) addLog(st, `財源が${POLICY_RESERVE}億円を切るため、圏域の方針の内政を一部止めました`, 'bad');
   }
@@ -957,30 +1001,45 @@
   const CHOICES = {
     office: { topic: '庁舎', pick: (st, c) => st.m[c].mergedAt !== undefined && st.turn - st.m[c].mergedAt <= 3 && st.factions[0].capital !== c,
       title: '庁舎をどうする？', lead: n => `合併した${n}の役所の仕事を、本庁にまとめる話が出ています。`,
-      opts: [{ label: '支所として残す', fx: { money: -25, sat: 12 } }, { label: '本庁にまとめる', fx: { money: 15, sat: -8 } }] },
+      opts: [{ label: '支所として残す', fx: { money: -25, sat: 8, old: 10 } }, { label: '本庁にまとめる', fx: { money: 15, sat: -6, old: -8 } }] },
     rail: { topic: 'ローカル線', pick: (st, c) => st.m[c].pop < 40 && st.factions[0].capital !== c,
       title: 'ローカル線をどうする？', lead: n => `${n}を走るローカル線の赤字が続き、残すかどうかが議論になっています。`,
-      opts: [{ label: '支援して残す', fx: { money: -30, sat: 6, near: 3 } }, { label: 'バスに切り替える', fx: { money: 15, sat: -10 } }] },
+      opts: [{ label: '支援して残す', fx: { money: -30, sat: 3, kid: 4, old: 6, near: 3 } }, { label: 'バスに切り替える', fx: { money: 15, sat: -6, kid: -4, old: -8 } }] },
     mall: { topic: '大型商業施設', pick: (st, c) => st.m[c].ind >= 50,
       title: '大型商業施設の進出', lead: n => `${n}の郊外に、大型商業施設の進出が打診されています。`,
-      opts: [{ label: '受け入れる', fx: { ind: 10, near: -4 } }, { label: '商店街を守る', fx: { sat: 4, tour: 4 } }] },
+      opts: [{ label: '受け入れる', fx: { ind: 10, work: 5, old: -5, near: -4 } }, { label: '商店街を守る', fx: { sat: 2, old: 6, tour: 4 } }] },
     fest: { topic: '祭りの予算', pick: (st, c) => st.m[c].tour >= 40,
       title: '祭りの予算', lead: n => `${n}の祭りの担い手が減り、予算の見直しが求められています。`,
       opts: [{ label: '予算を増やす', fx: { money: -20, tour: 8, sat: 4 } }, { label: '規模を縮める', fx: { money: 10, sat: -5 } }] },
     move: { topic: '移住の支援', pick: (st, c) => st.m[c].sat < 58,
       title: '移住の支援', lead: n => `${n}の人口減少を止めるため、移住者向けの住宅補助が提案されています。`,
-      opts: [{ label: '住宅補助を出す', fx: { money: -35, pop: 0.02, sat: 5 } }, { label: '空き家の紹介にとどめる', fx: { money: -5, sat: 1 } }] },
+      opts: [{ label: '住宅補助を出す', fx: { money: -35, pop: 0.02, kid: 8, young: 0.01 } }, { label: '空き家の紹介にとどめる', fx: { money: -5, sat: 1 } }] },
     waste: { topic: '処分場の計画', pick: (st, c) => st.m[c].pop < 30 && st.factions[0].capital !== c,
       title: '処分場の計画', lead: n => `${n}の山あいに、広域のごみ処分場をつくる計画が持ち込まれました。`,
-      opts: [{ label: '受け入れる', fx: { money: 40, sat: -12 } }, { label: '断る', fx: { sat: 3 } }] }
+      opts: [{ label: '受け入れる', fx: { money: 40, sat: -12 } }, { label: '断る', fx: { sat: 3 } }] },
+    // 世代のあいだで選ぶ出来事（ほかと同じく、1つめはお金を使う案、2つめはお金を使わない案）
+    respect: { topic: '敬老祝い金', pick: (st, c) => st.m[c].age[2] >= 0.3,
+      title: '敬老祝い金をどうする？', lead: n => `${n}で、長寿を祝う敬老祝い金を続けるか、そのお金を子育てに回すかが議論になっています。`,
+      opts: [{ label: '給食費の無償化に回す', fx: { money: -10, kid: 12, old: -8 } }, { label: '続ける', fx: { old: 4 } }] },
+    school: { topic: '小学校', pick: (st, c) => st.m[c].age[0] < 0.24 && st.m[c].pop < 60 && st.factions[0].capital !== c,
+      title: '小学校の統合', lead: n => `${n}で子どもが減り、小学校を統合する案が出ています。`,
+      opts: [{ label: '地域の拠点として残す', fx: { money: -20, kid: 6, old: 4 } }, { label: '統合する', fx: { money: 20, kid: -10 } }] },
+    hospital: { topic: '病院', pick: (st, c) => st.m[c].age[2] >= 0.32 && st.m[c].pop < 50 && st.factions[0].capital !== c,
+      title: '病院の再編', lead: n => `${n}の病院で医師が足りず、近くの大きな病院にまとめる話が出ています。`,
+      opts: [{ label: '地元に残す', fx: { money: -30, old: 10 } }, { label: '大きな病院にまとめる', fx: { money: 25, work: 3, old: -12 } }] },
+    bus: { topic: '地域の足', pick: (st, c) => st.m[c].age[2] >= 0.33,
+      title: '免許を返したあとの足', lead: n => `${n}で、車の免許を返したお年寄りの買い物や通院の足が問題になっています。`,
+      opts: [{ label: '予約制の乗り合いバスを走らせる', fx: { money: -20, old: 10 } }, { label: '家族や地域に任せる', fx: { old: -5 } }] }
   };
-  const CHOICE_FX = { ind: '産業力', tour: '観光力', sat: '満足度' };
+  const CHOICE_FX = { ind: '産業力', tour: '観光力', sat: '満足度', kid: '子育て世代', work: '働く世代', old: '高齢者' };
+  const CHOICE_GEN = { sat: undefined, kid: 0, work: 1, old: 2 };
   const choiceMoney = (st, v) => Math.round(v * (1 + owned(st, 0).length / 8));
   function choiceNote(st, fx) {
     const out = [];
     if (fx.money) out.push(`財源 ${fx.money > 0 ? '+' : '−'}${Math.abs(choiceMoney(st, fx.money))}億円`);
     for (const k in CHOICE_FX) if (fx[k]) out.push(`${CHOICE_FX[k]} ${fx[k] > 0 ? '+' : '−'}${Math.abs(fx[k])}`);
     if (fx.pop) out.push(`人口 +${fx.pop * 100}％`);
+    if (fx.young) out.push(`子育て世代の割合 +${fx.young * 200}％`);
     if (fx.near) out.push(`隣の自陣営の市町村の満足度 ${fx.near > 0 ? '+' : '−'}${Math.abs(fx.near)}`);
     return out.join('・') || '変化なし';
   }
@@ -1003,9 +1062,11 @@
     st.choice = null;
     if (x.owner !== 0) return '';
     if (fx.money) st.factions[0].money += choiceMoney(st, fx.money);
-    for (const k in CHOICE_FX) if (fx[k]) x[k] = clamp(x[k] + fx[k], 0, 100);
+    for (const k in CHOICE_FX) if (fx[k]) { if (k in CHOICE_GEN) addSat(x, fx[k], CHOICE_GEN[k]); else x[k] = clamp(x[k] + fx[k], 0, 100); }
     if (fx.pop) x.pop *= 1 + fx.pop;
-    if (fx.near) for (const c of adj[ch.code]) if (st.m[c].owner === 0) st.m[c].sat = clamp(st.m[c].sat + fx.near, 0, 100);
+    // 移り住むのは子育て世代：子どもの割合が増え、そのぶん高齢者の割合が減る
+    if (fx.young) { const k = x.age[0] + fx.young * 2, o = Math.max(0.1, x.age[2] - fx.young * 2); x.age = [k, 1 - k - o, o]; syncSat(x); }
+    if (fx.near) for (const c of adj[ch.code]) if (st.m[c].owner === 0) addSat(st.m[c], fx.near);
     const text = `${names[ch.code]}の${d.topic}は「${o.label}」に決めました（${choiceNote(st, fx)}）`;
     addLog(st, text, 'info');
     return text;
@@ -1022,7 +1083,21 @@
     { label: '大規模', cost: 2.5, eff: 1.8 },
     { label: '特大', cost: 5, eff: 2.8 }
   ];
-  const SCALABLE = ['ind', 'tour', 'care', 'dis', 'visit'];
+  const SCALABLE = ['ind', 'tour', 'care', 'elder', 'dis', 'visit'];
+  // 子育て支援と高齢者支援が、それぞれの世代の満足度をどれだけ上げるか（効果の何倍か）。
+  // 子育て世代の多い町では子育て支援が、高齢者の多い町では高齢者支援が、全体の満足度をよく上げる
+  const GEN_FX = { care: [2, 0.9, 0.35], elder: [0.4, 0.75, 2] };
+  const GEN_MAIN = { care: 0, elder: 2 };
+  // 世代ごとの上がり幅（それぞれ70を超えた分は半分）
+  function genGains(x, cmd, e) { return x.gs.map((v, i) => gainOf(v, Math.round(e * GEN_FX[cmd][i]))); }
+  // 全体の満足度の上がり幅
+  function satGain(x, cmd, e) { return genGains(x, cmd, e).reduce((s, g, i) => s + Math.min(g, 100 - x.gs[i]) * x.age[i], 0); }
+  // 子育て支援と高齢者支援のうち、今月まだしていて、全体の満足度をより上げるほう（どちらもしていればなし）
+  function bestCare(st, f, code) {
+    const x = st.m[code], e = { care: cmdEffect(st, f, 'care', 1), elder: cmdEffect(st, f, 'elder', 1) };
+    const ks = ['care', 'elder'].filter(k => !usedThisMonth(st, f, code, k) && x.gs[GEN_MAIN[k]] < 100);
+    return ks.sort((a, b) => satGain(x, b, e[b]) - satGain(x, a, e[a]))[0] || null;
+  }
   // 同じ市町村には、同じコマンドを月1回まで（特大の連発で一気に上げないように）
   const ONCE = [...SCALABLE, 'invite'];
   function usedThisMonth(st, f, code, cmd) { return !!(st.used && st.used[`${f}:${code}:${cmd}`]); }
@@ -1034,7 +1109,7 @@
   function cmdEffect(st, f, cmd, scale) {
     const pb = Math.floor(roleVal(st, f, 'planning') / 25) + advBonus(st, f, 'plan'), nb = Math.floor(roleVal(st, f, 'nego') / 15);
     const B = fx => advBonus(st, f, fx);
-    const base = { ind: 6 + pb + B('ind'), tour: 7 + pb + B('tour'), care: 8 + pb + B('care'), dis: 8 + pb, visit: 15 + nb + B('visit') }[cmd];
+    const base = { ind: 6 + pb + B('ind'), tour: 7 + pb + B('tour'), care: 8 + pb + B('care'), elder: 8 + pb + B('elder'), dis: 8 + pb, visit: 15 + nb + B('visit') }[cmd];
     return base === undefined ? 0 : Math.round(base * scaleOf(cmd, scale).eff);
   }
   // f を渡すと、偉人アドバイザーの値引きが入る
@@ -1042,7 +1117,7 @@
   function cmdCostBase(st, cmd, code) {
     const p = st.m[code].pop;
     switch (cmd) {
-      case 'ind': case 'care': return Math.round(3 + p * 0.05);
+      case 'ind': case 'care': case 'elder': return Math.round(3 + p * 0.05);
       case 'tour': return Math.round(2 + p * 0.035);
       case 'dis': return Math.round(2 + p * 0.04);
       case 'aid': return Math.round(3 + p * 0.03);
@@ -1122,8 +1197,8 @@
     }
     if (def.own) {
       if (x.owner !== f) return { ok: false, reason: '自陣営の市町村だけで実行できます' };
-      const key = { ind: 'ind', tour: 'tour', care: 'sat', dis: 'dis', invite: 'ind' }[cmd];
-      if (x[key] >= 100) return { ok: false, reason: 'これ以上は上がりません' };
+      const key = { ind: 'ind', tour: 'tour', dis: 'dis', invite: 'ind' }[cmd];
+      if (key ? x[key] >= 100 : x.gs[GEN_MAIN[cmd]] >= 100) return { ok: false, reason: 'これ以上は上がりません' };
       return { ok: true, cost };
     }
     if (x.owner === f) return { ok: false, reason: '自陣営です' };
@@ -1190,14 +1265,18 @@
     switch (cmd) {
       case 'ind': x.ind = clamp(x.ind + gainOf(x.ind, e), 0, 100); return `${who}${n}で産業振興（産業力 ${Math.round(x.ind)}${sl}）`;
       case 'tour': x.tour = clamp(x.tour + gainOf(x.tour, e), 0, 100); return `${who}${n}の観光PR（観光力 ${Math.round(x.tour)}${sl}）`;
-      case 'care': x.sat = clamp(x.sat + gainOf(x.sat, e), 0, 100); return `${who}${n}で子育て支援（満足度 ${Math.round(x.sat)}${sl}）`;
+      case 'care': case 'elder': {
+        const g = genGains(x, cmd, e);
+        x.gs = x.gs.map((v, i) => clamp(v + g[i], 0, 100)); syncSat(x);
+        return `${who}${n}で${CMDS[cmd].label}（${GENS[GEN_MAIN[cmd]]} ${Math.round(x.gs[GEN_MAIN[cmd]])}・満足度 ${Math.round(x.sat)}${sl}）`;
+      }
       case 'dis': x.dis = clamp(x.dis + gainOf(x.dis, e), 0, 100); return `${who}${n}の防災対策（防災力 ${x.dis}${sl}）`;
       case 'invite':
         if (rnd(st) < inviteChance(st, code)) { x.inviteLead = 0; x.ind = clamp(x.ind + 12, 0, 100); x.pop += 1 + x.pop * 0.01; return `${who}${n}への企業誘致に成功（産業力 ${Math.round(x.ind)}）`; }
         x.ind = clamp(x.ind + INVITE_FAIL_IND, 0, 100); x.inviteLead = Math.min(INVITE_LEAD_MAX, (x.inviteLead || 0) + INVITE_LEAD);
         return `${who}${n}への企業誘致は不調（つながりが残り、産業力 ${Math.round(x.ind)}・次は成功しやすい）`;
       case 'aid': {
-        st.rel[f][code] = clamp(st.rel[f][code] + AID_REL, 0, 100); x.sat = clamp(x.sat + AID_SAT, 0, 100); x.aided = { ...x.aided, [f]: x.hurt };
+        st.rel[f][code] = clamp(st.rel[f][code] + AID_REL, 0, 100); addSat(x, AID_SAT); x.aided = { ...x.aided, [f]: x.hurt };
         return `${who}${n}に${x.hurtKind || '災害'}の災害支援（関係度 ${Math.round(st.rel[f][code])}）`;
       }
       case 'build': { const p = projAt(code); st.proj = { ...(st.proj || {}), [p.id]: { f, left: p.months } }; return `${who}${n}で大型事業「${p.name}」に着工（${p.months}か月で完成）`; }
@@ -1210,7 +1289,7 @@
         return `${who}${n}に対抗提案（${other}と条件の競り合い）`;
       }
       case 'keep': {
-        const t = x.talk; t.keep = (t.keep || 0) + 1; x.sat = clamp(x.sat + 3, 0, 100);
+        const t = x.talk; t.keep = (t.keep || 0) + 1; addSat(x, 3);
         return `${who}${n}で住民への引き留め（${t.keep}段目）`;
       }
       case 'raise': {
@@ -1310,11 +1389,11 @@
         const own = owned(st, f);
         const weak = own.filter(c => { const rs = rivalSat(c); return rs && !(c === fac.capital && own.length > 3) && (st.m[c].sat < 47 || rs - st.m[c].sat >= 5); })
           .sort((a, b) => (b === fac.capital) - (a === fac.capital) || st.m[a].sat - st.m[b].sat);
-        const weak1 = weak.find(c => !usedThisMonth(st, f, c, 'care'));
-        if (weak1 && rnd(st) < AI_GUARD && tryDo('care', weak1)) continue;
+        const weak1 = weak.find(c => bestCare(st, f, c));
+        if (weak1 && rnd(st) < AI_GUARD && tryDo(bestCare(st, f, weak1), weak1)) continue;
         // 独立の動きがあれば、満足度を上げて収める
-        const rebel = own.find(c => st.m[c].indep && !usedThisMonth(st, f, c, 'care'));
-        if (rebel && rnd(st) < 0.8 && tryDo('care', rebel)) continue;
+        const rebel = own.find(c => st.m[c].indep && bestCare(st, f, c));
+        if (rebel && rnd(st) < 0.8 && tryDo(bestCare(st, f, rebel), rebel)) continue;
         // 競り合いで負けていれば上乗せ
         for (const c of near) {
           const t = st.m[c].talk;
@@ -1336,11 +1415,11 @@
         }
       }
       if (!done) {
-        const careFree = c => !usedThisMonth(st, f, c, 'care');
+        const careFree = c => !!bestCare(st, f, c);
         const mine = owned(st, f).filter(careFree).sort((a, b) => st.m[a].sat - st.m[b].sat);
         const big = owned(st, f).filter(careFree).sort((a, b) => st.m[b].pop - st.m[a].pop);
-        if (mine.length && st.m[mine[0]].sat < 48 && tryDo('care', mine[0])) done = true;
-        else if (fac.money > 60 && big.length && st.m[big[0]].sat < 66 && tryDo('care', big[0])) done = true;
+        if (mine.length && st.m[mine[0]].sat < 48 && tryDo(bestCare(st, f, mine[0]), mine[0])) done = true;
+        else if (fac.money > 60 && big.length && st.m[big[0]].sat < 66 && tryDo(bestCare(st, f, big[0]), big[0])) done = true;
         else if (!saving && fac.money > 80 && tryDo('invite', fac.capital)) done = true;
         else if (!saving && fac.money > 30 && tryDo('ind', fac.capital)) done = true;
       }
@@ -1402,6 +1481,7 @@
   function endTurn(st, adj, names) {
     const res = { votes: [], news: [], steps: [], lures: [], joins: [], elects: [] };
     if (st.over) return res;
+    ensureGen(st);
     ensureStaff(st);
     ensureAdv(st);
     ensureElect(st);
@@ -1447,8 +1527,8 @@
       const fac = st.factions[f];
       if (v.pass) {
         addFeat(st, f, 'merge'); if (prev >= 0) addFeat(st, f, 'steal');
-        x.owner = f; x.pact = []; x.sat = clamp(x.sat - 8, 0, 100); x.mergedAt = st.turn;
-        for (const k of owned(st, f)) if (k !== c) st.m[k].sat = clamp(st.m[k].sat - 1, 0, 100);
+        x.owner = f; x.pact = []; addSat(x, -8); x.mergedAt = st.turn;
+        for (const k of owned(st, f)) if (k !== c) addSat(st.m[k], -1);
         st.rel[f][c] = 60;
         const joined = staffOnMerge(st, names, c, f, prev);
         if (joined.length) { v.joined = joined; addLog(st, `${names[c]}ゆかりの${joined.join('・')}が${f === 0 ? 'あなたの陣営' : fac.name}に加わりました`, f === 0 ? 'good' : 'rival'); }
@@ -1470,6 +1550,7 @@
     // 月を進める
     st.turn++;
     const d = dateOf(st.turn);
+    if (d.month === 4) ageTick(st);
     // 季節・ランダムのイベント
     events(st, names, d.month, res);
     tickProjects(st, names, res);
@@ -1495,13 +1576,12 @@
     }
     for (const c in st.m) {
       const x = st.m[c];
-      const target = x.owner === -1 ? 54 : 50;
-      x.sat += (target - x.sat) * 0.04;
-      if (x.owner >= 0 && st.factions[x.owner].money < 0) x.sat -= 3;
-      if (x.owner >= 0) x.sat += advBonus(st, x.owner, 'sat');
-      x.sat = clamp(x.sat, 0, 100);
-      // 人口はゆるやかに減る。満足度と産業力が高いと減り方が小さく、十分高ければ増える
-      x.pop = Math.max(0.3, x.pop * (1 + (x.sat - 60 + (x.ind - 50) * 0.2) * 0.00004));
+      // 満足度はゆっくり元に戻る。働く世代は産業力（働く場）、高齢者は防災力（暮らしの安心）が高いと高めに落ち着く
+      const target = x.owner === -1 ? 54 : 50, tg = [target, target + (x.ind - 50) * 0.08, target + (x.dis - 50) * 0.06];
+      const push = (x.owner >= 0 && st.factions[x.owner].money < 0 ? -3 : 0) + (x.owner >= 0 ? advBonus(st, x.owner, 'sat') : 0);
+      x.gs = x.gs.map((v, i) => clamp(v + (tg[i] - v) * 0.04 + push, 0, 100)); syncSat(x);
+      // 人口はゆるやかに減る。若い世代の満足度と産業力が高いと減り方が小さく、十分高ければ増える
+      x.pop = Math.max(0.3, x.pop * (1 + (youngSat(x) - 60 + (x.ind - 50) * 0.2) * 0.00004));
       if (x.owner >= 0) x.pop = Math.max(0.3, x.pop * (1 - outflow(x)));
       const fi = floorInd(c), ft = floorTour(c);
       if (x.ind > fi) x.ind -= (x.ind - fi) * DECAY;
@@ -1567,7 +1647,7 @@
       delete x.indep; x.indepRest = st.turn + INDEP_REST;
       if (pass) {
         x.owner = -1; x.talk = null; x.race = null; x.pact = x.pact.filter(k => k !== f);
-        st.rel[f][c] = Math.min(st.rel[f][c], 30); x.sat = clamp(x.sat + 10, 0, 100);
+        st.rel[f][c] = Math.min(st.rel[f][c], 30); addSat(x, 10);
         addLog(st, `${names[c]}の住民投票で独立が決まりました（賛成${yes.toFixed(1)}％）。${nm(f)}を離れ、独立した市町村に戻りました`, f === 0 ? 'bad' : 'rival');
         if (f === 0) res.news.push(`${names[c]}が独立`);
         res.steps.push({ kind: 'event', code: c, text: `${names[c]}が${nm(f)}から独立（賛成${Math.round(yes)}％）`, tone: f === 0 ? 'bad' : 'warn' });
@@ -1592,7 +1672,7 @@
     const fest = { 4: '高山祭（春）でにぎわっています', 10: '高山祭（秋）でにぎわっています' };
     if (fest[month]) addLog(st, `高山市は${fest[month]}`, 'season');
     if (month === 5) addLog(st, '長良川鵜飼が開幕。岐阜市・関市の観光収入が伸びます', 'season');
-    if (month === 8) { st.m['21219'].sat = clamp(st.m['21219'].sat + 5, 0, 100); addLog(st, '郡上おどりが最高潮。郡上市の満足度が上がりました', 'season'); }
+    if (month === 8) { addSat(st.m['21219'], 5); addLog(st, '郡上おどりが最高潮。郡上市の満足度が上がりました', 'season'); }
     // 災害：予報の出ていた災害が来る。そのあと、来月の分の予報を出す
     if (st.fc && st.fc.turn <= st.turn) { disaster(st, names, st.fc, res); st.fc = null; }
     forecast(st, names, res);
@@ -1635,13 +1715,13 @@
     for (const c of hits) {
       const x = st.m[c];
       if (rnd(st) * 100 > x.dis) {
-        x.sat = clamp(x.sat - DIS_SAT, 0, 100);
+        addSat(x, -DIS_SAT);
         if (x.owner >= 0) st.factions[x.owner].money -= Math.round(2 + x.pop * 0.02);
         x.hurt = st.turn; x.hurtKind = kind;
         lost.push(c);
         res.steps.push({ kind: 'event', code: c, text: `${kind}で${names[c]}に被害`, tone: 'bad' });
       } else {
-        x.sat = clamp(x.sat + DIS_SAVE, 0, 100);
+        addSat(x, DIS_SAVE);
         saved.push(c);
         res.steps.push({ kind: 'event', code: c, text: `${kind}が${names[c]}を襲うも、備えで被害なし`, tone: 'good' });
       }
@@ -1654,7 +1734,7 @@
   }
 
 
-  const api = { seasonTags, FLOW_SAT, INDEP_SAT, CALM_SAT, INDEP_MONTHS, outflow, DISASTERS, DIS_SAT, AID_REL, AID_SAT, AID_MONTHS, disArea, disLabel, aidable, INVITE_FAIL_IND, INVITE_LEAD, inviteChance, ELECT_TERM, ELECT_WINDOW, RALLY_STEP, RALLY_MAX, ensureElect, electLeft, electExpect, electMine, raceDue, BATTLE_MIN, BATTLE_MAX, battleExpect, battlesDue, setBattle, JOIN_TOWNS, JOIN_RATIO, JOIN_SAT, AI_GUARD, voteExpect, AI_IDLE, FIRMS, LURE_MONTHS, LURE_PT, LURE_MAX, firmInc, sitePoint, lureSite, lureBid, lureScore, lureParts, lureRows, ADVISORS, ADV_BY_ID, ADV_MONTHS, ADV_COOL, ADV_SLOT2, ensureAdv, advCond, advMeasure, advOf, advFx, advBonus, advMax, advUsed, advHolder, canInviteAdv, inviteAdv, advise, advVote, regionLength, talksMax, APPEAL_TALKS, appeal, appealOf, appealRel, appealVote, INFO, REGIONS, MODES, regionCodes, goalOf, continueToUnify, CMDS, dateOf, difficultyOf, newGame, owned, apMax, totalPop, avgSat, incomeOf,
+  const api = { AGE, GENS, ageOf, youngSat, lowGen, ensureGen, GEN_FX, GEN_MAIN, genGains, satGain, bestCare, policyCmd, KID_KEEP, AGE_UP, seasonTags, FLOW_SAT, INDEP_SAT, CALM_SAT, INDEP_MONTHS, outflow, DISASTERS, DIS_SAT, AID_REL, AID_SAT, AID_MONTHS, disArea, disLabel, aidable, INVITE_FAIL_IND, INVITE_LEAD, inviteChance, ELECT_TERM, ELECT_WINDOW, RALLY_STEP, RALLY_MAX, ensureElect, electLeft, electExpect, electMine, raceDue, BATTLE_MIN, BATTLE_MAX, battleExpect, battlesDue, setBattle, JOIN_TOWNS, JOIN_RATIO, JOIN_SAT, AI_GUARD, voteExpect, AI_IDLE, FIRMS, LURE_MONTHS, LURE_PT, LURE_MAX, firmInc, sitePoint, lureSite, lureBid, lureScore, lureParts, lureRows, ADVISORS, ADV_BY_ID, ADV_MONTHS, ADV_COOL, ADV_SLOT2, ensureAdv, advCond, advMeasure, advOf, advFx, advBonus, advMax, advUsed, advHolder, canInviteAdv, inviteAdv, advise, advVote, regionLength, talksMax, APPEAL_TALKS, appeal, appealOf, appealRel, appealVote, INFO, REGIONS, MODES, regionCodes, goalOf, continueToUnify, CMDS, dateOf, difficultyOf, newGame, owned, apMax, totalPop, avgSat, incomeOf,
     factionIncome, grantOf, tagInfo, upkeep, cmdCost, cmdEffect, SCALES, SCALABLE, gradeOf, GRADE_PAY, faceOf, SCOUT, canScout, scout, ROLES, ABIL, ensureStaff, staffOf, staffMax, abil, roleVal, hireCandidates, hireCost, canHire, hire, dismiss, assignRole, autoAssign, staffUpkeep, aiStaff, inTalk, BID_MAX, KEEP_MAX, KEEP_STEP, canDo, doCmd, endTurn, adjacentTo, talksOf, seasonX, clamp,
     ONCE, SOFT, gainOf, usedThisMonth, AP_CAP, PROJECTS, PROJ_TOWNS, projAt, projState, projOf, projNeed, projFx, POLICIES, POLICY_TOWNS, POLICY_RESERVE, POLICY_MIN, policyReady, policyTowns, setPolicy,
     SIEGE_ON, SIEGE_OFF, SIEGE_REL, popShare, choiceView, applyChoice };

@@ -315,6 +315,20 @@ function meter(label, v, cls, key) {
   v = Math.round(v);
   return `<div class="meter"${key ? ` data-stat="${key}"` : ''}><span>${label}</span><div class="bar ${cls || ''}${v < 30 && cls !== 'rel' ? ' low' : ''}"><i style="width:${v}%"></i></div><b class="num">${v}</b></div>`;
 }
+// 世代ごとの満足度。名前の横に人口の割合を添え、いちばん不満な世代の声を出す（50未満のとき）
+const VOICE = ['保育園や学校をもっと手厚くしてほしい', '働く場所と収入を増やしてほしい', '病院や買い物の足が心配'];
+function gensHtml(x) {
+  const rows = L.GENS.map((g, i) => { const v = Math.round(x.gs[i]); return `<div class="meter gen" data-stat="g${i}"><span>${g}<small class="num">${Math.round(x.age[i] * 100)}％</small></span><div class="bar${v < 30 ? ' low' : ''}"><i style="width:${v}%"></i></div><b class="num">${v}</b></div>`; }).join('');
+  const lo = L.lowGen(x);
+  const voice = x.gs[lo] < 50 ? `<p class="note">${L.GENS[lo]}の声：「${VOICE[lo]}」</p>` : '';
+  return `<div class="gens"><div class="h5">世代ごとの満足度（人口の割合）</div>${rows}${voice}</div>`;
+}
+// 子育て支援・高齢者支援の説明：町の満足度の上がり幅を先に（狭い画面で切れないように）、そのあとに世代の上がり幅
+function genNote(x, k, raw) {
+  const g = L.genGains(x, k, raw), i = L.GEN_MAIN[k], all = L.satGain(x, k, raw);
+  const half = g[i] < Math.round(raw * L.GEN_FX[k][i]) ? `（${L.SOFT}超は半分）` : '';
+  return { all, text: `満足度 +${Math.round(all)}・${L.GENS[i]} +${g[i]}${half}` };
+}
 // 関係度のゲージ。次の段階（独立なら協定・協議、ほかの陣営なら擁立・切り崩し）の目盛りを添える
 function relGauge(c) {
   const x = S.m[c], v = Math.round(S.rel[0][c]), indep = x.owner < 0;
@@ -327,13 +341,14 @@ function relGauge(c) {
 }
 // コマンドで動いた数値を、地図の上の吹き出しと、ゲージが伸びる動きで見せる
 const STAT_LABEL = { rel: '関係度', ind: '産業力', tour: '観光力', sat: '満足度', dis: '防災力' };
-function statsOf(c) { const x = S.m[c]; return { rel: S.rel[0][c], ind: x.ind, tour: x.tour, sat: x.sat, dis: x.dis }; }
+// 世代ごとの満足度（g0〜g2）はゲージだけ動かし、地図の吹き出しには出さない
+function statsOf(c) { const x = S.m[c]; return { rel: S.rel[0][c], ind: x.ind, tour: x.tour, sat: x.sat, dis: x.dis, g0: x.gs[0], g1: x.gs[1], g2: x.gs[2] }; }
 function showGain(c, before) {
   const after = statsOf(c), still = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const moved = Object.keys(after).filter(k => Math.round(after[k]) !== Math.round(before[k]));
   moved.forEach((k, i) => {
     const d = Math.round(after[k]) - Math.round(before[k]), txt = (d > 0 ? '+' : '−') + Math.abs(d);
-    mapPop(c, `${STAT_LABEL[k]} ${txt}`, d < 0, i);
+    if (STAT_LABEL[k]) mapPop(c, `${STAT_LABEL[k]} ${txt}`, d < 0, i);
     for (const el of $('sheet').querySelectorAll(`[data-stat="${k}"]`)) growBar(el, before[k], after[k], txt, d < 0, still);
   });
   if (moved.length && !still) {
@@ -455,7 +470,7 @@ function renderSheet() {
     if (mine) alert = `独立の動き・あと${x.indep.left}か月`;
     notes += `<p class="note talking" style="${mine ? 'color:var(--bad)' : ''}">独立を求める声が上がっています。あと${x.indep.left}か月のうちに満足度を${L.CALM_SAT}以上に戻さないと、独立を問う住民投票になります（いま ${Math.round(x.sat)}）</p>`;
   }
-  if (x.owner >= 0 && L.outflow(x)) notes += `<p class="note"${mine ? ' style="color:var(--bad)"' : ''}>満足度が${L.FLOW_SAT}未満のため、人口が流出しています（月 −${(L.outflow(x) * 100).toFixed(1)}％）</p>`;
+  if (x.owner >= 0 && L.outflow(x)) notes += `<p class="note"${mine ? ' style="color:var(--bad)"' : ''}>子育て世代と働く世代の満足度が${L.FLOW_SAT}未満のため、人口が流出しています（月 −${(L.outflow(x) * 100).toFixed(1)}％）</p>`;
   // 災害：予報の範囲に入っているか、被害を受けて支援を待っているか
   const fcHere = S.fc && L.disArea(S.fc).includes(c);
   if (fcHere) {
@@ -477,7 +492,7 @@ function renderSheet() {
   if (!mine && !L.adjacentTo(S, ADJ, c, 0)) notes += `<p class="note">あなたの陣営と隣り合っていないため、外交はまだできません。</p>`;
   const t = x.talk;
   // いつものコマンドは、いつも同じ並び。そのときだけ出るコマンド（補助金・演説会など）は、別の枠にまとめて上に出す
-  const cmds = mine ? ['ind', 'tour', 'care', 'dis', 'invite'] : ['visit', 'pact', 'talk'];
+  const cmds = mine ? ['ind', 'tour', 'care', 'elder', 'dis', 'invite'] : ['visit', 'pact', 'talk'];
   const now = [];
   if (race && (race.ch === 0 || race.inc === 0)) now.push('rally');
   else if (!mine && x.owner >= 0 && eLeft < L.ELECT_WINDOW) now.push('run');
@@ -492,13 +507,16 @@ function renderSheet() {
     const sc = L.SCALABLE.includes(k) ? S.budget : undefined;
     const def = L.CMDS[k], r = L.canDo(S, ADJ, 0, k, c, S.ap, sc), cost = L.cmdCost(S, k, c, sc, 0);
     // 上がりにくさ（L.SOFT を超えた分は半分）を入れた、実際の上がり幅
-    const cur = { ind: x.ind, tour: x.tour, care: x.sat, dis: x.dis, visit: S.rel[0][c] }[k];
+    const cur = { ind: x.ind, tour: x.tour, dis: x.dis, visit: S.rel[0][c] }[k];
     const raw = L.cmdEffect(S, 0, k, sc), e = cur === undefined ? raw : L.gainOf(cur, raw);
     const half = e < raw ? `（${L.SOFT}超は半分）` : '';
+    // 子育て支援・高齢者支援：その世代の上がり幅と、全体の満足度の上がり幅
+    const gen = L.GEN_FX[k] ? genNote(x, k, raw) : null;
     // 産業力・観光力は陣営の魅力にも効くので、上がり幅を添える
     const ga = (k === 'ind' || k === 'tour') ? Math.min(e, 100 - x[k]) / 2 * x.pop / (L.totalPop(S, 0) || 1) : 0;
     const pj = k === 'build' ? L.projAt(c) : null;
-    const note = k === 'care' && mine && x.indep ? `独立の動き：満足度 ${Math.round(x.sat)}→${Math.min(100, Math.round(x.sat) + e)}（${L.CALM_SAT}以上で収まる・あと${x.indep.left}か月）`
+    const note = gen && mine && x.indep ? `独立の動き：満足度 ${Math.round(x.sat)}→${Math.min(100, Math.round(x.sat + gen.all))}（${L.CALM_SAT}以上で収まる・あと${x.indep.left}か月）`
+      : gen ? gen.text
       : k === 'dis' ? disNote(x, e, fcHere && mine) : k === 'aid' ? `関係度 +${L.AID_REL}・満足度 +${L.AID_SAT}（${x.hurtKind || '災害'}の被害）`
       : EFF[k] ? `${EFF[k]} +${e}${half}${ga >= 0.05 ? `・陣営の魅力 +${ga.toFixed(1)}` : ''}`
       : pj ? `完成すると${pj.region}圏域の自陣営の市町村で${L.projFx(pj)}、ここの収入が毎月+${pj.inc}億円（${pj.months}か月で完成）`
@@ -506,8 +524,8 @@ function renderSheet() {
       : k === 'rally' ? `得票 +${L.RALLY_STEP}（${race.rally[0]}/${L.RALLY_MAX}回）・いまの見込み ${Math.round(L.electMine(S, c))}％`
       : k === 'lure' ? lureNote()
       : k === 'invite' ? `成功率 ${Math.round(L.inviteChance(S, c) * 100)}％・成功で産業力 +12・人口増${x.inviteLead ? '（前回のつながりで上乗せ）' : ''}` : def.note;
-    // 予報の出ている防災対策と、独立の動きがあるときの子育て支援は、並びはそのままで目立たせる
-    const urgent = (k === 'dis' && fcHere && mine) || (k === 'care' && mine && !!x.indep);
+    // 予報の出ている防災対策と、独立の動きがあるときのよく効くほうの支援は、並びはそのままで目立たせる
+    const urgent = (k === 'dis' && fcHere && mine) || (!!gen && mine && !!x.indep && k === L.bestCare(S, 0, c));
     return `<button class="cmd${k === 'talk' ? ' primary' : ''}${urgent ? ' urgent' : ''}${now.includes(k) || k === 'build' ? ' wide' : ''}" data-cmd="${k}" aria-disabled="${!r.ok}">
       <span class="ttl"><strong>${cmdIcon(k)}${def.label}</strong><span class="cost num">${cost ? cost + '億・' : ''}行動${def.ap}</span></span><small>${r.ok ? note : r.reason}</small></button>`;
   };
@@ -522,7 +540,8 @@ function renderSheet() {
   sheetFrame(`${TI.icon(c)}<h2>${rb(c)}</h2>${ownerTag}<span class="tag">${info[0]}</span>`, line,
     `${mine ? shareLine(c, month) : relGauge(c)}${cmds.some(k => L.SCALABLE.includes(k)) ? budgetHtml() : ''}${btns}`,
     `<div class="meters">${meter('産業力', x.ind, '', 'ind')}${meter('観光力', x.tour, '', 'tour')}${meter('満足度', x.sat, '', 'sat')}${meter('防災力', x.dis, '', 'dis')}</div>
-    <p class="facts num">人口 ${x.pop.toFixed(1)}千人 · 収入 ${L.incomeOf(S, c, month).toFixed(1)}億円/月</p>${notes}`);
+    ${gensHtml(x)}
+    <p class="facts num">人口 ${x.pop.toFixed(1)}千人 · 高齢化率 ${Math.round(x.age[2] * 100)}％ · 収入 ${L.incomeOf(S, c, month).toFixed(1)}億円/月</p>${notes}`);
   for (const b of sh.querySelectorAll('.cmd')) b.onclick = () => runCmd(b.dataset.cmd);
 }
 // コマンドのアイコン（線で描いた小さな絵。色は文字と同じ）
@@ -530,6 +549,7 @@ const CMD_ICONS = {
   ind: '<path d="M3 21V10l5 3v-3l5 3v-3l5 3V4h3v17z"/>',
   tour: '<rect x="3" y="7" width="18" height="13" rx="2"/><circle cx="12" cy="13.5" r="3.5"/><path d="M8.5 7l1.5-3h4l1.5 3"/>',
   care: '<path d="M12 20s-7.5-4.4-7.5-10A4 4 0 0 1 12 7.6 4 4 0 0 1 19.5 10c0 5.6-7.5 10-7.5 10z"/>',
+  elder: '<circle cx="10" cy="4.5" r="2"/><path d="M10 7.5v6l-2.5 7.5M10 13.5l2.5 7.5M10 9.5l4.5 2"/><path d="M14.5 11.5c1.5-1 2.5-.5 2.5 1V21"/>',
   dis: '<path d="M12 3l7.5 3v5.5c0 4.7-3.2 8-7.5 9.5-4.3-1.5-7.5-4.8-7.5-9.5V6z"/><path d="M8.5 12l2.5 2.5 4.5-4.5"/>',
   invite: '<path d="M4 21V4h10v17M14 9h6v12M2.5 21h19M7.5 8h3M7.5 12h3M7.5 16h3"/>',
   visit: '<circle cx="8" cy="7.5" r="3"/><circle cx="16.5" cy="7.5" r="3"/><path d="M2.5 20c0-3.6 2.4-6 5.5-6s5.5 2.4 5.5 6M14 14.2c.8-.1 1.6-.2 2.5-.2 3 0 5 2.4 5 6"/>',
@@ -561,7 +581,7 @@ function todoList() {
   // 同じ種類は2つまで（予報だけで埋まらないように）
   const out = [], seen = new Set(), own = L.owned(S, 0), per = h => out.filter(t => t.head === h).length;
   const add = (c, cmd, head, text) => { if (out.length < 4 && per(head) < 2 && !seen.has(c + cmd) && L.canDo(S, ADJ, 0, cmd, c, 99, L.SCALABLE.includes(cmd) ? S.budget : undefined).ok) { seen.add(c + cmd); out.push({ c, cmd, head, text }); } };
-  for (const c of own.filter(c => S.m[c].indep)) add(c, 'care', '独立の動き', `${NAMES[c]}（満足度 ${Math.round(S.m[c].sat)}→${L.CALM_SAT}・あと${S.m[c].indep.left}か月）→ 子育て支援`);
+  for (const c of own.filter(c => S.m[c].indep)) { const k = L.bestCare(S, 0, c) || 'care'; add(c, k, '独立の動き', `${NAMES[c]}（満足度 ${Math.round(S.m[c].sat)}→${L.CALM_SAT}・あと${S.m[c].indep.left}か月）→ ${L.CMDS[k].label}`); }
   for (const c of fcTowns().filter(c => S.m[c].dis < 80).sort((a, b) => S.m[b].pop - S.m[a].pop)) add(c, 'dis', `${S.fc.kind}の予報`, `${NAMES[c]}（防ぐ確率 ${Math.round(S.m[c].dis)}％）→ 防災対策`);
   for (const c of own) { const t = S.m[c].talk; if (t && !L.inTalk(t, 0)) add(c, 'keep', '狙われている', `${NAMES[c]}（住民投票まであと${t.left}か月）→ 引き留め`); }
   for (const c in S.m) { const r = S.m[c].race; if (r && r.inc === 0) add(c, 'rally', '対立候補', `${NAMES[c]}（得票の見込み ${Math.round(L.electMine(S, c))}％）→ 演説会`); }
@@ -569,7 +589,7 @@ function todoList() {
   if (S.lure) { const site = L.lureSite(S, ADJ, 0), rows = L.lureRows(S, ADJ); if (site && rows[0] && rows[0].f !== 0) add(site, 'lure', '誘致合戦', `${S.lure.name}（いま${rows.findIndex(r => r.f === 0) + 1}位）→ 補助金`); }
   for (const c in S.m) if (L.aidable(S, c)) add(c, 'aid', '災害支援', `${NAMES[c]}（関係度 +${L.AID_REL}）`);
   for (const c in S.m) add(c, 'talk', '合併協議できる', `${NAMES[c]}（関係度 ${Math.round(S.rel[0][c])}）`);
-  for (const c of own.filter(c => S.m[c].sat < 45).sort((a, b) => S.m[a].sat - S.m[b].sat)) add(c, 'care', '満足度が低い', `${NAMES[c]}（${Math.round(S.m[c].sat)}${L.outflow(S.m[c]) ? '・人口流出中' : ''}）→ 子育て支援`);
+  for (const c of own.filter(c => S.m[c].sat < 45).sort((a, b) => S.m[a].sat - S.m[b].sat)) { const k = L.bestCare(S, 0, c) || 'care'; add(c, k, '満足度が低い', `${NAMES[c]}（${Math.round(S.m[c].sat)}${L.outflow(S.m[c]) ? '・人口流出中' : ''}）→ ${L.CMDS[k].label}`); }
   for (const c in S.m) add(c, 'run', '首長選挙に候補を立てられる', `${NAMES[c]}（見込み ${Math.round(L.electExpect(S, 0, c))}％）`);
   for (const p of L.PROJECTS) add(p.code, 'build', '大型事業に着工できる', `${p.name}（${p.cost}億円）`);
   for (const c in S.m) add(c, 'pact', '連携協定できる', `${NAMES[c]}（関係度 ${Math.round(S.rel[0][c])}）`);
@@ -593,7 +613,7 @@ function policyHtml() {
   const opts = [['', 'なし'], ...Object.entries(L.POLICIES).map(([k, p]) => [k, p.label])];
   const rows = regs.map(r => {
     const cur = (S.policy || {})[r] || '', towns = L.policyTowns(S, r);
-    const plan = cur && !L.policyReady(S, r) ? `${r}圏域に自陣営の市町村が${Math.min(L.POLICY_MIN, L.regionCodes(r).length)}つ以上になると動きます` : cur && towns.length ? `今月末：${towns.map(c => NAMES[c]).join('・')}で${L.CMDS[L.POLICIES[cur].cmd].label}（${towns.reduce((a, c) => a + L.cmdCost(S, L.POLICIES[cur].cmd, c, 1, 0), 0)}億円）` : cur ? '今月末：対象の市町村はありません' : '';
+    const plan = cur && !L.policyReady(S, r) ? `${r}圏域に自陣営の市町村が${Math.min(L.POLICY_MIN, L.regionCodes(r).length)}つ以上になると動きます` : cur && towns.length ? `今月末：${towns.map(c => `${NAMES[c]}で${L.CMDS[L.policyCmd(S, L.POLICIES[cur], c)].label}`).join('・')}（${towns.reduce((a, c) => a + L.cmdCost(S, L.policyCmd(S, L.POLICIES[cur], c), c, 1, 0), 0)}億円）` : cur ? '今月末：対象の市町村はありません' : '';
     return `<div class="pol"><span class="pol-r">${r}</span><div class="segs" role="group" aria-label="${r}圏域の方針">${opts.map(([k, lb]) => `<button data-region="${r}" data-pol="${k}" aria-pressed="${cur === k}">${lb}</button>`).join('')}</div>${plan ? `<small>${plan}</small>` : ''}</div>`;
   }).join('');
   return `<div class="policy"><div class="h5">圏域の方針</div><p class="note">選んだ内政を、月末にその圏域の値の低い市町村から${L.POLICY_TOWNS}つまで、標準の規模で自動で行います。行動力は使いません。圏域に自陣営の市町村が${L.POLICY_MIN}つ以上あるときに動き、財源が${L.POLICY_RESERVE}億円を切ると止まります</p>${rows}</div>`;
@@ -1334,10 +1354,16 @@ const GUIDE = [
     '被害を受けると満足度と財源が下がる。防げば満足度が少し上がる',
     '隣の市町村が被害を受けたら、2か月のあいだ<b>災害支援</b>で関係度を上げられる']],
   ['満足度が低いと', '人口が減り、独立の動きも起きる', [
-    '満足度が40未満の市町村からは、人口が流れ出す（月0.4〜1％）。税収も少しずつ減る',
+    '子育て世代と働く世代の満足度が40未満の市町村からは、人口が流れ出す（月0.4〜1％）。税収も少しずつ減る',
     '30を下回ると<b>独立の動き</b>が起きる。3か月のうちに満足度を50以上に戻せば収まる',
     '戻せなければ独立を問う住民投票。可決されると、その市町村は独立した市町村に戻る（本拠地では起きない）',
-    '<b>子育て支援</b>で満足度を上げて防ぐ']],
+    '<b>子育て支援</b>か<b>高齢者支援</b>で満足度を上げて防ぐ']],
+  ['3つの世代', '子育て世代・働く世代・高齢者', [
+    '満足度は世代ごとにあり、町の満足度は人口の割合で重みづけした平均。住民投票や選挙も、人口の多い世代の気持ちで決まる',
+    '世代の割合は2020年の国勢調査の値（子育て世代は0〜14歳の子どもとその親、高齢者は65歳以上）',
+    '<b>子育て支援</b>は子育て世代、<b>高齢者支援</b>は高齢者の満足度を大きく上げる。高齢化の進んだ町では高齢者支援がよく効く',
+    '人口が流れ出すかどうかは、子育て世代と働く世代の満足度で決まる。働く世代は産業力、高齢者は防災力が高いと落ち着いて保たれる',
+    '毎年4月に町が年をとり、高齢者の割合が少し増える。子育て世代の満足度が高いと子どもの割合が保たれる。働く世代が多いほど税収が多い']],
   ['負けになるとき', '財源と満足度に気をつける', [
     '財源のマイナスが3か月続くと負け',
     '満足度が20を下回ると負け']],
@@ -1351,7 +1377,7 @@ function showGuide() {
 }
 
 // ---------- タイトル ----------
-const PICKS = [['やさしい', ['21201', '21202', '21213']], ['ふつう', ['21203', '21204', '21604']], ['むずかしい', ['21505', '21403']], ['超むずかしい', ['21507', '21502']]];
+const PICKS = [['やさしい', ['21201', '21213', '21219']], ['ふつう', ['21202', '21203', '21204']], ['むずかしい', ['21604', '21505', '21403']], ['超むずかしい', ['21507', '21504']]];
 // 開始時の財源と、最初の月（4月）の収支を試算する
 const PREVIEW = {};
 // 圏域制覇ではライバルの置き方が変わるので、遊び方ごとに試算する
@@ -1405,7 +1431,10 @@ function showStartDetail(c) {
       <div class="kv"><span>うち地方交付税</span><b class="num">${L.grantOf(st, 0).toFixed(1)}億円</b></div>
       <div class="kv"><span>魅力</span><b class="num">${Math.round(L.appeal(st, 0))}</b></div>
       <div class="kv"><span>同時に進められる協議</span><b class="num">${L.talksMax(st, 0)}件</b></div>
+      <div class="kv"><span>子どもの割合</span><b class="num">${L.AGE[c][0]}％</b></div>
+      <div class="kv"><span>高齢化率</span><b class="num">${L.AGE[c][1]}％</b></div>
     </div>
+    <p class="note" style="margin-top:2px">子ども（0〜14歳）と高齢者（65歳以上）の割合は2020年の国勢調査。高齢化の進んだ町では高齢者支援が、子どもの多い町では子育て支援がよく効きます</p>
     <div class="h4">特産</div>
     ${tag ? `<p style="margin:0"><span class="tag">${tag}</span></p><p class="note" style="color:var(--ink)">${L.tagInfo(tag)}</p>` : '<p class="note">特産タグはありません。産業と観光を伸ばして個性をつくります。</p>'}
     <div class="h4">数値</div>
@@ -1481,7 +1510,7 @@ function startNew(code) {
   if (fest) showSeason(fest, () => { closeOverlay(); hello(); }); else hello();
 }
 function afterLoad() {
-  L.ensureStaff(S); L.ensureAdv(S); L.ensureElect(S);
+  L.ensureGen(S); L.ensureStaff(S); L.ensureAdv(S); L.ensureElect(S);
   sel = null; seenLog = S.log.length; closeOverlay(); render();
   // 本拠地のまわりに大きく寄せて始める。隣の市町村をそのままタップできる
   zoomRegion('自陣', true);
