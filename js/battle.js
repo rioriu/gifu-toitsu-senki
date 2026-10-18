@@ -20,6 +20,9 @@
     plan: { kind: 'meeting', label: '説明会', cd: 15, target: 'mine', amt: v => Math.round(v / 12), note: n => `隣の地区すべて −${n}` }
   };
   const SKILL_COLORS = ['#c0392b', '#8e44ad', '#2471a3'];
+  // 地区の世代（子育て世代・働く世代・高齢者）。地区の名前の横に印を出し、世代の集会は同じ世代の地区すべてに効く
+  const GEN_NAME = ['子育て世代', '働く世代', '高齢者'], GEN_CH = ['子', '働', '高'], GEN_COL = ['#2e8b57', '#4a6fa5', '#9a6324'];
+  const GEN = { amt: 6, cd: 18, lean: 0.5, leanMax: 8 };
   const DIRS = [['北', 0], ['北東', 45], ['東', 90], ['南東', 135], ['南', 180], ['南西', 225], ['西', 270], ['北西', 315]];
 
   let words = null, el, cv, ctx, ro = null, W = 0, H = 0, DPR = 1, C = {}, st = null, opts = null, done = null, raf = 0, last = 0;
@@ -106,9 +109,32 @@
   }
   function angDiff(a, b) { const d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; }
 
+  // 地区の世代：中心部は働く世代。ほかの地区は、中心部に近い順に子育て世代・働く世代・高齢者（遠い山あいほど高齢者）を、
+  // 町の世代の割合に合わせて割り当てる。働く世代の多くは中心部にいるとみなして少なめ、高齢者は外側に多めに置く
+  function assignGens(g, o) {
+    if (!o.age) return;
+    const c = g.nodes.find(n => n.center); c.gen = 1;
+    const outer = g.nodes.filter(n => !n.center).sort((a, b) => Math.hypot(a.mx - c.mx, a.my - c.my) - Math.hypot(b.mx - c.mx, b.my - c.my));
+    const m = outer.length, w = [o.age[0], o.age[1] * 0.4, o.age[2] * 1.2], ws = w[0] + w[1] + w[2];
+    const raw = w.map(v => v / ws * m), cnt = raw.map(Math.floor);
+    const rest = [0, 1, 2].sort((a, b) => (raw[b] - cnt[b]) - (raw[a] - cnt[a]));
+    for (let i = 0; cnt[0] + cnt[1] + cnt[2] < m; i++) cnt[rest[i % 3]]++;
+    // 外側が2つ以上あれば、子育て世代と高齢者の地区は少なくとも1つずつ
+    if (m >= 2) for (const i of [0, 2]) if (!cnt[i]) { const j = cnt[1] ? 1 : 2 - i; cnt[j]--; cnt[i]++; }
+    let k = 0;
+    for (const gi of [0, 1, 2]) for (let t = 0; t < cnt[gi]; t++) outer[k++].gen = gi;
+  }
+  // 世代の満足度で、地区の賛成の傾きを変える。合併や候補の擁立では、町の平均より不満な世代ほど変化を望んで賛成に、
+  // 現職で守る選挙では、満足している世代ほど味方に傾く
+  function genLean(n, o) {
+    if (n.gen === undefined || !o.gs) return 0;
+    return clamp((o.sat - o.gs[n.gen]) * GEN.lean * (o.defend ? -1 : 1), -GEN.leanMax, GEN.leanMax);
+  }
+
   // 始めの状態：自陣営に近い地区を味方、遠い地区を反対派にし、全体の賛成がいまの見込みと同じになるようにそろえる
   function setup(o) {
     const g = makeDistricts(o);
+    assignGens(g, o);
     const R = Math.max(g.box.w, g.box.h) / 2 || 1;
     const proj = n => ((n.mx - o.lx) * o.dir.x + (n.my - o.ly) * o.dir.y) / R;
     // 中心部のほかの地区を、自陣営に近い順に味方、遠い順に反対派へ（4地区の町は1つずつ）
@@ -117,7 +143,7 @@
     const mine = new Set(side.slice(0, nm)), theirs = new Set(side.slice(-no));
     for (const n of g.nodes) {
       n.owner = mine.has(n) ? 'me' : theirs.has(n) ? 'opp' : 'neu';
-      n.lean = o.expect + clamp(proj(n), -1, 1) * 5 - (n.center ? 2 : 0);
+      n.lean = o.expect + clamp(proj(n), -1, 1) * 5 - (n.center ? 2 : 0) + genLean(n, o);
       n.count = n.owner === 'me' ? Math.round(BAL.meBase + n.share * BAL.meShare) : n.owner === 'opp' ? Math.round(BAL.oppBase + n.share * BAL.oppShare) : Math.round(BAL.neuBase + n.share * BAL.neuShare);
     }
     const me = side[0];
@@ -170,6 +196,7 @@
       const amt = def.amt(p.val);
       return { id: 's' + i, who: p.name, kind: def.kind, label: def.label, note: def.note(amt), amt, cd: def.cd, target: def.target, color: SKILL_COLORS[i] };
     });
+    if (o.age) list.push({ id: 'gen', who: '地区を選ぶ', kind: 'gen', label: '世代の集会', note: `同じ世代の地区 +${GEN.amt}`, amt: GEN.amt, cd: GEN.cd, target: 'any', color: '#5d6d2e' });
     if (o.adv) list.push({ id: 'adv', who: o.adv.name, kind: 'freeze', label: `${advShort(o.adv.name)}の策`, note: `${words.opp}を6秒止める`, cd: 0, target: 'none', once: true, color: '#a8701a', say: o.adv.say });
     return list;
   }
@@ -439,11 +466,18 @@
       ctx.font = `${Math.round(11 + n.r * .3)}px 'Dela Gothic One', sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(Math.floor(n.count), n.px, n.py + 1);
       ctx.font = '700 11px ' + fam; ctx.textBaseline = 'top';
-      const label = `${n.name} ${(n.pop).toFixed(1)}千人`;
-      const tw = ctx.measureText(label).width + 10;
+      const label = `${n.name} ${(n.pop).toFixed(1)}千人`, bw = n.gen !== undefined ? 16 : 0;
+      const tw = ctx.measureText(label).width + 10 + bw;
       const ly = n.labelUp ? n.py - n.r - 21 : n.py + n.r + 4;
       ctx.fillStyle = C.surface; ctx.globalAlpha = .9; roundRect(n.px - tw / 2, ly, tw, 17, 8); ctx.fill(); ctx.globalAlpha = 1;
-      ctx.fillStyle = C.ink; ctx.fillText(label, n.px, ly + 2.5);
+      // 世代の印（子・働・高）
+      if (bw) {
+        const gx = n.px - tw / 2 + 9.5;
+        ctx.fillStyle = GEN_COL[n.gen]; ctx.beginPath(); ctx.arc(gx, ly + 8.5, 7, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.font = '700 9.5px ' + fam; ctx.fillText(GEN_CH[n.gen], gx, ly + 3.5);
+        ctx.font = '700 11px ' + fam;
+      }
+      ctx.fillStyle = C.ink; ctx.fillText(label, n.px + bw / 2, ly + 2.5);
       ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
     }
     // なぞっている矢印
@@ -556,7 +590,7 @@
   // ---------- 操作 ----------
   function pt(e) { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
   function hitNode(x, y) { let best = null, bd = Infinity; for (const n of st.nodes) { const d = Math.hypot(n.px - x, n.py - y); if (d < n.r + 16 && d < bd) { bd = d; best = n; } } return best; }
-  function validTarget(id, n) { const s = st.skills.find(q => q.id === id); return s.target === 'mine' ? n.owner === 'me' : s.target === 'other' ? n.owner !== 'me' : false; }
+  function validTarget(id, n) { const s = st.skills.find(q => q.id === id); return s.target === 'mine' ? n.owner === 'me' : s.target === 'other' ? n.owner !== 'me' : s.target === 'any'; }
 
   function bindInput() {
     cv.addEventListener('pointerdown', e => {
@@ -590,7 +624,7 @@
       if (st.cds[s.id] > 0 || (s.once && st.spent[s.id])) return;
       if (s.target === 'none') { useSkill(s.id, null); return; }
       st.armed = st.armed === s.id ? null : s.id;
-      hint(st.armed ? (s.target === 'mine' ? `${s.label}：自分の地区を押す` : `${s.label}：${words.opp}か、まだどちらでもない地区を押す`) : HINT);
+      hint(st.armed ? (s.target === 'mine' ? `${s.label}：自分の地区を押す` : s.target === 'any' ? `${s.label}：地区を押すと、同じ世代の地区すべてに効く` : `${s.label}：${words.opp}か、まだどちらでもない地区を押す`) : HINT);
       renderSkills();
     });
     $('btPause').addEventListener('click', () => {
@@ -626,6 +660,11 @@
     if (s.kind === 'meeting') {
       for (const j of st.adj[n.id]) { const m = node(j); if (m.owner !== 'me') { push(m, s.amt); burst(m.px, m.py, s.color, 8, 1.6); } }
       fl('説明会');
+    }
+    // 世代の集会：押した地区と同じ世代の地区すべてで、自分の地区は人が増え、ほかの地区は相手が減る
+    if (s.kind === 'gen') {
+      for (const m of st.nodes) if (m.gen === n.gen) { if (m.owner === 'me') m.count += s.amt; else push(m, s.amt); burst(m.px, m.py, GEN_COL[n.gen], 10, 1.6); }
+      fl(`${GEN_NAME[n.gen]}の集会`);
     }
     if (s.kind === 'freeze') { st.freezeUntil = st.t + 6; st.spent[s.id] = true; banner(s.label); toast(`${s.who}「${s.say}」`); }
     st.cds[id] = s.cd;
@@ -668,7 +707,8 @@
       ${st.tut ? '<p>最初の1手は案内します。</p>' : `<ul class="bt-how">
         <li><span class="k" style="background:var(--me)">1</span><span><b>朱の地区から隣の地区へなぞる</b>と、運動員の半分が道を走っていく。相手より多く着けばその地区を押さえられる</span></li>
         <li><span class="k" style="background:var(--b-opp)">2</span><span>${words.opp}も攻めてくる。道の途中でぶつかると、同じ数ずつ減る</span></li>
-        <li><span class="k" style="background:var(--warn)">3</span><span>下の人材の技は、押してから地区を押す</span></li></ul>`}
+        <li><span class="k" style="background:var(--warn)">3</span><span>下の人材の技は、押してから地区を押す</span></li>${opts.age ? `
+        <li><span class="k" style="background:#5d6d2e">4</span><span>地区には世代の印（<b>子</b>＝子育て世代・<b>働</b>＝働く世代・<b>高</b>＝高齢者）がある。不満な世代の地区ほど${opts.defend ? '相手' : words.yes}に傾く。<b>世代の集会</b>は、押した地区と同じ世代の地区すべてに効く</span></li>` : ''}</ul>`}
       <div class="bt-btns"><button class="secondary" type="button" data-cmd="auto">おまかせ</button><button class="primary" type="button" data-cmd="begin">決戦開始</button></div>
       <p class="bt-note">おまかせは、いままでと同じ計算（見込み±10％の運）で決めます。メニューで決戦をしない設定にもできます。途中でアプリやページを閉じると、この決戦は月の途中からやり直しになります（決着した結果は保存されます）。</p>`);
   }

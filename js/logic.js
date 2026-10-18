@@ -72,6 +72,8 @@
   const TOUR_TAG = { '鵜飼': 30, '高山祭': 45, '郡上おどり': 30, '栗きんとん': 18, '温泉': 40,
     '合掌造り': 55, '美濃焼': 15, '刃物': 10, '美濃和紙': 20, '古戦場': 30, '飛騨牛': 20, '航空宇宙': 10 };
   const IND_TAG = { '刃物': 15, '美濃焼': 12, '航空宇宙': 22, '美濃和紙': 6 };
+  // 高齢者の満足度が落ち着く先を上げる特産（温泉は湯治の町）
+  const OLD_TAG = { '温泉': 8 };
 
   const MONTHS_TXT = ms => ms.length >= 3 && ms.every((m, i) => i === 0 || m === (ms[i - 1] % 12) + 1) ? `${ms[0]}〜${ms[ms.length - 1]}月` : ms.map(m => m + '月').join('・');
   function tagInfo(tag) {
@@ -83,6 +85,7 @@
     if (TOUR_TAG[tag] && !sn) parts.push(`観光力が高め（+${TOUR_TAG[tag]}）`);
     if (tag === '合掌造り') parts.unshift('観光力がとても高い');
     if (tag === '郡上おどり') parts.push('8月に満足度+5');
+    if (OLD_TAG[tag]) parts.push(`湯治の町で、高齢者の満足度が高めに保たれる（+${OLD_TAG[tag]}）`);
     if (tag === '美濃和紙') parts.push('この市を持つ陣営の人材は企画+8');
     if (tag === '古戦場') parts.push('毎年9月、この町を持つ陣営に関ケ原ゆかりの偉人が助言に来る');
     return parts.join('。');
@@ -493,6 +496,7 @@
     { id: 'basho', name: '松尾芭蕉', home: '21202', title: 'むすびの地', fx: 'tour', v: 5, cost: 20, cond: ['tour60', 2, '観光力60以上の市町村を2つ持つ'], say: '旅人の心に残る景色を、ひとつ磨きなされ' },
     { id: 'oribe', name: '古田織部', home: '21218', title: '織部好み', fx: 'ind', v: 4, cost: 20, cond: ['maxInd', 70, '産業力70の市町村を持つ'], say: 'ゆがみもまた味わい。ものづくりに遊び心を' },
     { id: 'toson', name: '島崎藤村', home: '21206', title: '夜明け前', fx: 'care', v: 5, cost: 20, cond: ['sat', 65, '平均満足度を65にする'], say: '子らが学べる町にこそ、夜明けは来る' },
+    { id: 'genjonai', name: '源丞内', home: '21341', title: '養老の孝子', fx: 'elder', v: 5, cost: 20, cond: ['maxOld', 70, '高齢者の満足度70の市町村を持つ'], say: '年寄りを大切にする町には、若い者も帰ってくるものです' },
     { id: 'enku', name: '円空', home: '21209', title: '旅の仏師', fx: 'sat', v: 1, cost: 20, cond: ['towns', 5, '市町村を5つにする'], say: '一刀ごとに、人の心を彫るのです' },
     { id: 'chiune', name: '杉原千畝', home: '21505', title: '命のビザ', fx: 'visit', v: 8, cost: 15, cond: ['pact', 3, '連携協定を3回結ぶ'], say: '扉は閉ざすより、開くほうが道は広がります' },
     { id: 'chiyo', name: '千代', home: '21219', title: '内助の功', fx: 'cost', v: 20, cost: 15, cond: ['money', 100, '財源を100億円貯める'], say: '蓄えは、いざというときのために。むだを省きましょう' },
@@ -519,6 +523,7 @@
       case 'maxTour': return Math.round(Math.max(0, ...cs.map(c => st.m[c].tour)));
       case 'maxInd': return Math.round(Math.max(0, ...cs.map(c => st.m[c].ind)));
       case 'tour60': return cs.filter(c => st.m[c].tour >= 60).length;
+      case 'maxOld': return Math.round(Math.max(0, ...cs.map(c => st.m[c].gs[2])));
       case 'sat': return Math.round(avgSat(st, f));
       case 'money': return st.factions[f].money;
     }
@@ -625,6 +630,7 @@
       }
       case 'plan': case 'ind': { const c = low('ind'); return `${names[c]}の産業力は${Math.round(st.m[c].ind)}。産業振興で底上げを`; }
       case 'tour': case 'tourInc': { const c = low('tour'); return `${names[c]}の観光力は${Math.round(st.m[c].tour)}。観光PRで磨きましょう`; }
+      case 'elder': { const c = mine.slice().sort((p, q) => st.m[p].gs[2] - st.m[q].gs[2])[0]; return `${names[c]}の高齢者の満足度は${Math.round(st.m[c].gs[2])}。高齢者支援で手当てを`; }
       case 'care': case 'sat': { const c = low('sat'); return `${names[c]}の満足度は${Math.round(st.m[c].sat)}。いちばん不満なのは${GENS[lowGen(st.m[c])]}です`; }
     }
     const month = dateOf(st.turn).month, net = factionIncome(st, f, month) - upkeep(st, f);
@@ -1576,8 +1582,8 @@
     }
     for (const c in st.m) {
       const x = st.m[c];
-      // 満足度はゆっくり元に戻る。働く世代は産業力（働く場）、高齢者は防災力（暮らしの安心）が高いと高めに落ち着く
-      const target = x.owner === -1 ? 54 : 50, tg = [target, target + (x.ind - 50) * 0.08, target + (x.dis - 50) * 0.06];
+      // 満足度はゆっくり元に戻る。働く世代は産業力（働く場）、高齢者は防災力（暮らしの安心）と温泉が高めに落ち着かせる
+      const target = x.owner === -1 ? 54 : 50, tg = [target, target + (x.ind - 50) * 0.08, target + (x.dis - 50) * 0.06 + (OLD_TAG[INFO[c][2]] || 0)];
       const push = (x.owner >= 0 && st.factions[x.owner].money < 0 ? -3 : 0) + (x.owner >= 0 ? advBonus(st, x.owner, 'sat') : 0);
       x.gs = x.gs.map((v, i) => clamp(v + (tg[i] - v) * 0.04 + push, 0, 100)); syncSat(x);
       // 人口はゆるやかに減る。若い世代の満足度と産業力が高いと減り方が小さく、十分高ければ増える

@@ -800,6 +800,7 @@ function battleOpts(c) {
   const a = L.advOf(S, 0).map(x => L.ADV_BY_ID[x.id]).find(x => x);
   return {
     code: c, name: NAMES[c], d: m.d, lx: m.lx, ly: m.ly, pop: S.m[c].pop, expect: L.battleExpect(S, c),
+    age: S.m[c].age, gs: S.m[c].gs, sat: S.m[c].sat,
     dir: { x: dx / len, y: dy / len }, mine: NAMES[S.factions[0].capital], mineFac: S.factions[0].name,
     nameHtml: rb(c), mineHtml: rb(S.factions[0].capital),
     staff, adv: a ? { name: a.name, say: a.say } : null,
@@ -1303,6 +1304,7 @@ const GUIDE = [
     `賛成の見込みが${L.BATTLE_MIN}〜${L.BATTLE_MAX}％の住民投票は、月を終える前に90秒の陣取りで決める`,
     '地区から隣の地区へなぞって運動員を送り、押さえた地区ほど賛成が高くなる',
     '人材が技になる',
+    '地区には世代の印（子・働・高）があり、不満な世代の地区ほど賛成に傾く。<b>世代の集会</b>で、同じ世代の地区にまとめて働きかけられる',
     '「おまかせ」で今までの計算にもできる。メニューで決戦そのものを切ることもできる']],
   ['ライバルとの取り合い', '切り崩し・対抗提案・引き留め・合流', [
     'ライバルの市町村は、相手の満足度が45未満に落ちているか、こちらの平均満足度が8以上高いと切り崩せる。相手の満足度は、災害の被害や財源のマイナス、合併の直後に下がる',
