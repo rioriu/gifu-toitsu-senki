@@ -432,7 +432,8 @@ function renderSheet() {
     for (const b of sh.querySelectorAll('[data-open-staff]')) b.onclick = () => showStaff('adv');
     for (const b of sh.querySelectorAll('[data-todo]')) b.onclick = () => goTodo(b.dataset.todo, b.dataset.cmd);
     for (const b of sh.querySelectorAll('[data-go]')) b.onclick = () => { sel = null; select(b.dataset.go); };
-    for (const b of sh.querySelectorAll('[data-pol]')) b.onclick = () => { L.setPolicy(S, b.dataset.region, b.dataset.pol); save(); sfx('tap'); renderSheet(); };
+    // 方針を選んでも、シートのスクロール位置はそのままにする（描き直すと一番上に戻るため）
+    for (const b of sh.querySelectorAll('[data-pol]')) b.onclick = () => { const y = sh.querySelector('.body').scrollTop; L.setPolicy(S, b.dataset.region, b.dataset.pol); save(); sfx('tap'); renderSheet(); sh.querySelector('.body').scrollTop = y; };
     bindLure(sh);
     return;
   }
