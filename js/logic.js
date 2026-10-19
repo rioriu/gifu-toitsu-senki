@@ -1209,7 +1209,8 @@
     }
     if (x.owner === f) return { ok: false, reason: '自陣営です' };
     if (!adjacentTo(st, adj, code, f)) return { ok: false, reason: '自陣営と隣り合っていません' };
-    const rel = st.rel[f][code];
+    // 関係度は小数で持つが、画面には四捨五入して出す。判定も同じ値で行い、「70」と出ているのに協議できない、が起きないようにする
+    const rel = Math.round(st.rel[f][code]);
     const t = x.talk;
     if (cmd === 'visit') {
       if (rel >= 100) return { ok: false, reason: '関係度は最大です' };
